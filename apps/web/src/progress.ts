@@ -1,37 +1,59 @@
 import type { CardInstance, MatchState } from '@sigilgrid/core';
 import {
+  COLLECTION_CAP,
   ENCOUNTERS,
   instantiateId,
   instantiatePack,
-  ownedTemplateIds,
+  instantiateTierPack,
+  packTierById,
   PACK_SIZE,
   PRACTICE_WIN_SEALS,
   REPEAT_WIN_SEALS,
-  SEAL_PACK_COST,
-  sealCost,
-  templateById,
   type Encounter,
 } from '@sigilgrid/content';
 import type { SaveGame } from './save.ts';
+
+export const CAP = COLLECTION_CAP;
+
+export function freeSlots(save: SaveGame): number {
+  return Math.max(0, CAP - save.collection.length);
+}
+
+/** Album slots are finite, so anything granted has to fit. */
+function addWithinCap(collection: CardInstance[], incoming: CardInstance[]): CardInstance[] {
+  const room = Math.max(0, CAP - collection.length);
+  return [...collection, ...incoming.slice(0, room)];
+}
 
 function mergePlayed(collection: CardInstance[], result: MatchState): CardInstance[] {
   return collection.map((c) => result.cards[c.instanceId] ?? c);
 }
 
-function capturedPrize(result: MatchState): CardInstance | null {
+/** Opponent cards still flipped to your colour when the match ended. */
+export function lootCandidates(result: MatchState): CardInstance[] {
+  const out: CardInstance[] = [];
   for (const cell of result.board) {
     const occ = cell.occupant;
     if (!occ || occ.owner !== 'player') continue;
     const card = result.cards[occ.instanceId];
-    if (card && occ.instanceId.startsWith('o-')) return card;
+    if (card && occ.instanceId.startsWith('o-')) out.push(card);
   }
-  return null;
+  return out;
 }
 
-function grantCaptured(collection: CardInstance[], prize: CardInstance, encounterId: string): CardInstance[] {
-  const instanceId = `taken-${encounterId}-${prize.templateId}`;
-  if (collection.some((c) => c.instanceId === instanceId)) return collection;
-  return [...collection, { ...prize, instanceId, provenance: 'drop' }];
+export function lootInstanceId(encounterId: string, prize: CardInstance): string {
+  return `taken-${encounterId}-${prize.templateId}`;
+}
+
+/** Take a chosen spoil. Declining is a legitimate answer, so this is opt-in. */
+export function claimLoot(save: SaveGame, prize: CardInstance, encounterId: string): SaveGame {
+  const instanceId = lootInstanceId(encounterId, prize);
+  if (save.collection.some((c) => c.instanceId === instanceId)) return save;
+  if (save.collection.length >= CAP) return save;
+  return {
+    ...save,
+    collection: [...save.collection, { ...prize, instanceId, provenance: 'drop' }],
+  };
 }
 
 function grantCard(
@@ -56,10 +78,10 @@ function scoreDelta(result: MatchState): number {
 }
 
 export function grantStoryRewards(save: SaveGame, encounter: Encounter, seed: number): SaveGame {
-  let collection = [
-    ...save.collection,
-    ...instantiatePack(save.collection, seed + 700, `pack-${encounter.id}`, PACK_SIZE),
-  ];
+  let collection = addWithinCap(
+    [...save.collection],
+    instantiatePack(save.collection, seed + 700, `pack-${encounter.id}`, PACK_SIZE),
+  );
   let seals = save.seals;
   let loreIds = [...save.loreIds];
   let unlockedCosmetics = [...save.unlockedCosmetics];
@@ -78,10 +100,10 @@ export function grantStoryRewards(save: SaveGame, encounter: Encounter, seed: nu
     if (r.kind === 'lore') loreIds = [...new Set([...loreIds, r.id])];
     if (r.kind === 'cosmetic') unlockedCosmetics = [...new Set([...unlockedCosmetics, r.id])];
     if (r.kind === 'pack') {
-      collection = [
-        ...collection,
-        ...instantiatePack(collection, seed + 900, `pack-${encounter.id}-extra`, r.count * PACK_SIZE),
-      ];
+      collection = addWithinCap(
+        collection,
+        instantiatePack(collection, seed + 900, `pack-${encounter.id}-extra`, r.count * PACK_SIZE),
+      );
     }
   }
 
@@ -107,8 +129,6 @@ export function applyMatchToSave(
 
   if (opts.mode === 'story' && opts.encounter) {
     if (won) {
-      const prize = capturedPrize(opts.result);
-      if (prize) next.collection = grantCaptured(next.collection, prize, opts.encounter.id);
       if (!save.campaign.completed.includes(opts.encounter.id)) {
         const completed = [...save.campaign.completed, opts.encounter.id];
         const idx = ENCOUNTERS.findIndex((e) => e.id === opts.encounter!.id);
@@ -137,10 +157,10 @@ export function applyMatchToSave(
     const best = next.daily.date === date ? Math.max(next.daily.bestScore ?? -99, sc) : sc;
     next.daily = { date, bestScore: best, packClaimed: alreadyPacked || won };
     if (won && !alreadyPacked) {
-      next.collection = [
-        ...next.collection,
-        ...instantiatePack(next.collection, opts.seed, `daily-${date}`, PACK_SIZE),
-      ];
+      next.collection = addWithinCap(
+        next.collection,
+        instantiatePack(next.collection, opts.seed, `daily-${date}`, PACK_SIZE),
+      );
     }
   }
 
@@ -156,28 +176,36 @@ export function applyMatchToSave(
   return next;
 }
 
-export function buyTemplate(save: SaveGame, templateId: string): SaveGame | string {
-  let template;
-  try {
-    template = templateById(templateId);
-  } catch {
-    return 'Unknown card.';
+export type PackPurchase = { save: SaveGame; pulled: CardInstance[] };
+
+/**
+ * Buy a sealed pack. The cards come back alongside the new save so the UI can
+ * play the opening before they appear in the album.
+ */
+export function buyPackTier(save: SaveGame, tierId: string, seed: number): PackPurchase | string {
+  const tier = packTierById(tierId);
+  if (!tier) return 'Unknown pack.';
+  if (save.seals < tier.cost) {
+    const short = tier.cost - save.seals;
+    return `${tier.name} costs ${tier.cost} seals — ${short} more to go.`;
   }
-  const cost = sealCost(template.rarity);
-  if (save.seals < cost) return `Need ${cost} seals.`;
-  if (ownedTemplateIds(save.collection).has(templateId)) return 'You already own this card.';
+  if (freeSlots(save) < tier.size) {
+    return `Not enough album space: ${tier.name} holds ${tier.size} cards and you have ${freeSlots(save)} free. Discard something first.`;
+  }
+  const pulled = instantiateTierPack(tier, save.collection, seed, `${tier.id}-${seed}`);
   return {
-    ...save,
-    seals: save.seals - cost,
-    collection: [...save.collection, instantiateId(templateId, 9000 + cost, 'event', `shop-${templateId}`)],
+    save: { ...save, seals: save.seals - tier.cost, collection: [...save.collection, ...pulled] },
+    pulled,
   };
 }
 
-export function buyPack(save: SaveGame, seed: number): SaveGame | string {
-  if (save.seals < SEAL_PACK_COST) return `Need ${SEAL_PACK_COST} seals.`;
+export function discardCard(save: SaveGame, instanceId: string): SaveGame {
   return {
     ...save,
-    seals: save.seals - SEAL_PACK_COST,
-    collection: [...save.collection, ...instantiatePack(save.collection, seed, `shop-pack-${seed}`, PACK_SIZE)],
+    collection: save.collection.filter((c) => c.instanceId !== instanceId),
+    decks: save.decks.map((d) => ({
+      ...d,
+      instanceIds: d.instanceIds.filter((id) => id !== instanceId),
+    })),
   };
 }

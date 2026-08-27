@@ -6,7 +6,7 @@ import {
   createStarterCollection,
   instantiateId,
 } from '@sigilgrid/content';
-import { applyMatchToSave, buyTemplate, grantStoryRewards } from './progress.ts';
+import { applyMatchToSave, claimLoot, grantStoryRewards, lootCandidates } from './progress.ts';
 import { emptySave } from './save.ts';
 
 function ended(winner: 'player' | 'opponent' | 'draw', extra: Parameters<typeof createMatch>[0] extends never ? never : Partial<ReturnType<typeof createMatch>> = {}) {
@@ -65,7 +65,8 @@ describe('applyMatchToSave', () => {
     expect(first.campaign.completed).toEqual(['t1']);
     expect(first.campaign.nextId).toBe('t2');
     expect(first.collection.filter((c) => c.instanceId === 'reward-t1-cactuar')).toHaveLength(1);
-    expect(first.collection.some((c) => c.instanceId === 'taken-t1-lizardman')).toBe(true);
+    // Spoils are offered, not taken automatically — claimLoot does that.
+    expect(first.collection.some((c) => c.instanceId === 'taken-t1-lizardman')).toBe(false);
     const before = first.collection.filter((c) => c.instanceId.startsWith('reward-')).length;
     const replay = applyMatchToSave(first, {
       mode: 'story',
@@ -90,13 +91,17 @@ describe('applyMatchToSave', () => {
     expect(next.collection.some((c) => c.instanceId === 'reward-t1-cactuar')).toBe(true);
   });
 
-  it('sells a missing unique from the shop once', () => {
-    const save = { ...emptySave(createStarterCollection()), seals: 10 };
-    const bought = buyTemplate(save, 'ramuh');
-    expect(typeof bought).not.toBe('string');
-    if (typeof bought === 'string') return;
-    expect(bought.collection.some((c) => c.instanceId === 'shop-ramuh')).toBe(true);
-    expect(buyTemplate(bought, 'ramuh')).toBe('You already own this card.');
+  it('offers every opponent card you flipped as loot, and claims only the pick', () => {
+    const save = emptySave(createStarterCollection());
+    const win = ended('player');
+    const spoils = lootCandidates(win);
+    expect(spoils.length).toBeGreaterThan(0);
+    expect(spoils.every((c) => c.instanceId.startsWith('o-'))).toBe(true);
+
+    const taken = claimLoot(save, spoils[0]!, 't1');
+    expect(taken.collection.some((c) => c.instanceId === 'taken-t1-lizardman')).toBe(true);
+    // Claiming the same spoil again must not duplicate it.
+    expect(claimLoot(taken, spoils[0]!, 't1').collection).toHaveLength(taken.collection.length);
   });
 
   it('does not inject story loaner cards into the collection', () => {

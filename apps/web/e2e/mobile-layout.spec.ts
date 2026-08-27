@@ -52,10 +52,14 @@ test('board and hand share one screen on a phone', async ({ page }, testInfo) =>
 
 test('long-press inspects a card without selecting it', async ({ page }) => {
   await page.goto('/#/collection');
+  await page.getByTestId('tab-deck').click();
   const card = page.locator('.album .card-face').first();
   await expect(card).toBeVisible();
 
   const selectedBefore = await page.locator('.album .card-face.selected').count();
+  // boundingBox is viewport-relative, so an off-screen card would put the
+  // synthetic press somewhere else entirely.
+  await card.scrollIntoViewIfNeeded();
   const box = (await card.boundingBox())!;
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
@@ -71,7 +75,11 @@ test('long-press inspects a card without selecting it', async ({ page }) => {
 });
 
 test('a short tap selects instead of inspecting', async ({ page }) => {
+  // The Deck tab is where tap and long-press diverge: tap toggles deck
+  // membership, long-press inspects. In the Album tab a tap inspects, since
+  // there is nothing to select there.
   await page.goto('/#/collection');
+  await page.getByTestId('tab-deck').click();
   const card = page.locator('.album .card-face').first();
   await expect(card).toBeVisible();
   await card.click();

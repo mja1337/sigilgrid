@@ -133,3 +133,49 @@ export function cardCollectorShare(
 
   return { type, arrows, cls, total: type + arrows + cls };
 }
+
+export type DiscardImpact = {
+  /** Collector points lost by removing this card. Never negative. */
+  points: number;
+  /** Last card of its type — the most expensive loss at 10 points. */
+  losesType: boolean;
+  /** Last card carrying its arrow pattern, worth 5. */
+  losesArrows: boolean;
+  /** Best-class copy of its template; X is worth 1, A is worth 2. */
+  losesClass: number;
+  reasons: string[];
+};
+
+/**
+ * What discarding this card would actually cost.
+ *
+ * Deliberately a before/after diff rather than the per-card attribution in
+ * `cardCollectorShare`: that helper credits one representative card for a
+ * shared property, so it reports a loss for the first of two cards with the
+ * same arrow mask even though the second still covers it.
+ */
+export function discardImpact(
+  card: CardInstance,
+  collection: readonly CardInstance[],
+): DiscardImpact {
+  const before = collectorScore(collection);
+  const after = collectorScore(collection.filter((c) => c.instanceId !== card.instanceId));
+
+  const losesType = after.uniqueTypes < before.uniqueTypes;
+  const losesArrows = after.uniqueArrows < before.uniqueArrows;
+  const losesClass =
+    (before.classA - after.classA) * 2 + (before.classX - after.classX) * 1;
+
+  const reasons: string[] = [];
+  if (losesType) reasons.push('your only copy of this card (−10)');
+  if (losesArrows) reasons.push('your only card with this arrow pattern (−5)');
+  if (losesClass > 0) reasons.push(`your best class for this card (−${losesClass})`);
+
+  return {
+    points: Math.max(0, before.points - after.points),
+    losesType,
+    losesArrows,
+    losesClass,
+    reasons,
+  };
+}

@@ -10,6 +10,7 @@ import {
   type PlacementPreview,
 } from '@sigilgrid/core';
 import { CardFace } from './CardFace.tsx';
+import { ROLL_SETTLE_MS, ROLL_SPIN_MS } from './rollTiming.ts';
 import blockStone from '../assets/block-stone.webp';
 
 function dirBetween(from: number, to: number): Direction | null {
@@ -20,10 +21,17 @@ function dirBetween(from: number, to: number): Direction | null {
   return DIRECTIONS.find((d) => OFFSET[d][0] === dr && OFFSET[d][1] === dc) ?? null;
 }
 
+const TICK_MS = 55;
+
+const settled = (tick: number) => tick * TICK_MS >= ROLL_SETTLE_MS;
+
 function jitter(final: number, tick: number): number {
-  if (tick > 14) return final;
+  // Spin, then hold the last spun value through the suspense beat so the real
+  // number lands after a held pause rather than straight out of the blur.
+  if (settled(tick)) return final;
+  const t = Math.min(tick, Math.floor(ROLL_SPIN_MS / TICK_MS));
   const span = Math.max(12, Math.abs(final) + 8);
-  return Math.abs((final * 17 + tick * 31) % span);
+  return Math.abs((final * 17 + t * 31) % span);
 }
 
 export function BoardView(props: {
@@ -53,12 +61,14 @@ export function BoardView(props: {
     const id = window.setInterval(() => {
       n += 1;
       setTick(n);
-    }, 55);
+    }, TICK_MS);
     return () => window.clearInterval(id);
   }, [props.combatEvents]);
 
   const nudgeDir =
-    battle && battle.kind === 'battle' && tick < 16 ? dirBetween(battle.placedCell, battle.targetCell) : null;
+    battle && battle.kind === 'battle' && !settled(tick)
+      ? dirBetween(battle.placedCell, battle.targetCell)
+      : null;
   const showRolls = Boolean(battle && battle.kind === 'battle');
 
   return (
@@ -71,9 +81,9 @@ export function BoardView(props: {
         const isDefender = battle && battle.kind === 'battle' && i === battle.targetCell;
         const roll = showRolls && battle && battle.kind === 'battle'
           ? isAttacker
-            ? { kind: 'attack' as const, value: jitter(battle.detail.attackFinal, tick), settled: tick > 14 }
+            ? { kind: 'attack' as const, value: jitter(battle.detail.attackFinal, tick), settled: settled(tick) }
             : isDefender
-              ? { kind: 'defense' as const, value: jitter(battle.detail.defenseFinal, tick), settled: tick > 14 }
+              ? { kind: 'defense' as const, value: jitter(battle.detail.defenseFinal, tick), settled: settled(tick) }
               : null
           : null;
         return (

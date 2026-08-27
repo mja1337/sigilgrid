@@ -7,6 +7,130 @@ export const SEAL_PACK_COST = 2;
 export const REPEAT_WIN_SEALS = 1;
 export const PRACTICE_WIN_SEALS = 1;
 
+/** Album slots. Matches the template count, so a perfect album is exactly full. */
+export const COLLECTION_CAP = 100;
+
+export type Rarity = CardTemplate['rarity'];
+export type RarityWeights = Partial<Record<Rarity, number>>;
+
+export type PackTier = {
+  id: string;
+  name: string;
+  blurb: string;
+  cost: number;
+  size: number;
+  weights: RarityWeights;
+  /** At least one card of this rarity or better, if the pool can supply it. */
+  floor?: Rarity;
+};
+
+export const RARITY_ORDER: Rarity[] = ['common', 'uncommon', 'rare', 'relic'];
+
+export const PACK_TIERS: PackTier[] = [
+  {
+    id: 'ashfall',
+    name: 'Ashfall Wrap',
+    blurb: 'Cheap market paper. Mostly common sigils, the odd surprise.',
+    cost: 2,
+    size: 3,
+    weights: { common: 70, uncommon: 25, rare: 5 },
+  },
+  {
+    id: 'ember',
+    name: 'Ember Seal',
+    blurb: 'Stall-wright stock. A real shot at something rare.',
+    cost: 5,
+    size: 3,
+    weights: { common: 40, uncommon: 35, rare: 20, relic: 5 },
+  },
+  {
+    id: 'lantern',
+    name: 'Black Lantern',
+    blurb: 'Archive-grade. Five cards, and never all chaff.',
+    cost: 10,
+    size: 5,
+    weights: { uncommon: 40, rare: 40, relic: 20 },
+    floor: 'rare',
+  },
+];
+
+export function packTierById(id: string): PackTier | undefined {
+  return PACK_TIERS.find((t) => t.id === id);
+}
+
+function weightedRarity(weights: RarityWeights, roll: number): Rarity {
+  const entries = RARITY_ORDER.map((r) => [r, weights[r] ?? 0] as const).filter(([, w]) => w > 0);
+  const total = entries.reduce((n, [, w]) => n + w, 0);
+  let acc = 0;
+  const target = roll * total;
+  for (const [rarity, w] of entries) {
+    acc += w;
+    if (target < acc) return rarity;
+  }
+  return entries[entries.length - 1]![0];
+}
+
+/**
+ * Draw a pack. Unowned cards are always preferred so a purchase moves the
+ * album forward; duplicates only appear once that rarity is exhausted.
+ */
+export function rollPack(
+  tier: PackTier,
+  collection: readonly CardInstance[],
+  seed: number,
+): string[] {
+  const rng = createRng(seed);
+  const owned = ownedTemplateIds(collection);
+  const taken = new Set<string>();
+  const picked: string[] = [];
+
+  const drawOf = (rarity: Rarity): string | null => {
+    const of = (pool: CardTemplate[]) => pool.filter((t) => t.rarity === rarity && !taken.has(t.templateId));
+    const fresh = of(TEMPLATES.filter((t) => !owned.has(t.templateId)));
+    const bag = fresh.length ? fresh : of([...TEMPLATES]);
+    if (!bag.length) return null;
+    const choice = bag[rng.int(0, bag.length - 1)]!;
+    taken.add(choice.templateId);
+    return choice.templateId;
+  };
+
+  for (let i = 0; i < tier.size; i++) {
+    let rarity = weightedRarity(tier.weights, rng.next());
+    // The floor applies to the last card, so a guaranteed pack cannot roll
+    // its way out of the guarantee.
+    const isLast = i === tier.size - 1;
+    if (tier.floor && isLast && !picked.some((id) => meetsFloor(id, tier.floor!))) {
+      rarity = tier.floor;
+    }
+    let id = drawOf(rarity);
+    if (!id) {
+      for (const alt of [...RARITY_ORDER].reverse()) {
+        id = drawOf(alt);
+        if (id) break;
+      }
+    }
+    if (id) picked.push(id);
+  }
+  return picked;
+}
+
+function meetsFloor(templateId: string, floor: Rarity): boolean {
+  const t = TEMPLATES.find((x) => x.templateId === templateId);
+  if (!t) return false;
+  return RARITY_ORDER.indexOf(t.rarity) >= RARITY_ORDER.indexOf(floor);
+}
+
+export function instantiateTierPack(
+  tier: PackTier,
+  collection: readonly CardInstance[],
+  seed: number,
+  prefix: string,
+): CardInstance[] {
+  return rollPack(tier, collection, seed).map((id, i) =>
+    instantiateId(id, seed + i * 19 + 7, 'drop', `${prefix}-${id}-${i}`),
+  );
+}
+
 export const DECK_PRESETS = [
   { id: 'beginner', name: 'Beginner balanced', templates: ['goblin', 'fang', 'skeleton', 'flan', 'zaghnol'] },
   { id: 'combo', name: 'Combo bait', templates: ['bomb', 'mimic', 'mandragora', 'nymph', 'cactuar'] },

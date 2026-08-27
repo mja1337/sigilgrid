@@ -22,6 +22,28 @@ Landscape keeps the seats beside the board and lays the hand out two-wide.
 Placement works by tap-to-select then tap-a-square, or by dragging a card onto
 the grid; long-press a card anywhere to inspect its stats, arrows and mastery.
 
+## Collecting
+
+The album holds **100 cards**, matching the template count, so a perfect album
+is exactly full. Cards arrive three ways: story rewards, spoils taken from an
+opponent, and sealed packs bought with seals.
+
+| Pack | Cost | Cards | Odds |
+| --- | --- | --- | --- |
+| Ashfall Wrap | 2 seals | 3 | common 70 / uncommon 25 / rare 5 |
+| Ember Seal | 5 seals | 3 | common 40 / uncommon 35 / rare 20 / relic 5 |
+| Black Lantern | 10 seals | 5 | uncommon 40 / rare 40 / relic 20, rare+ guaranteed |
+
+Packs favour templates you do not own, but the draw is the draw — there is no
+way to buy a specific card. Winning a story rite offers the opponent cards you
+turned; take one or leave them.
+
+Collector points come from unique types (10 each), unique arrow patterns (5)
+and best class per template (X 1, A 2). Discarding is therefore not free: the
+Workshop computes the exact cost before you confirm, warning when a card is
+your only copy of its type, the only holder of its arrow pattern, or your best
+class for that template.
+
 ## Saves
 
 Progress is held in `localStorage` under `sigilgrid.save.v1`, so it is per-browser

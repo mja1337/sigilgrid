@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { arrowMask, collectorScore, collectorTitle, COLLECTOR_MAX } from '../collector.ts';
+import { arrowMask, collectorScore, collectorTitle, COLLECTOR_MAX, discardImpact } from '../collector.ts';
 import { makeCard } from '../factory.ts';
 import { addHidden, hiddenOf, HIDDEN_PER_WIN, nearestUpgrade, remainingToPip } from '../mastery.ts';
-import type { Direction } from '../types.ts';
+import type { BattleClass, Direction } from '../types.ts';
 
 describe('collector points', () => {
   it('scores unique types, unique arrows, and best class per type', () => {
@@ -80,5 +80,66 @@ describe('hidden stats', () => {
     expect(card.attack).toBe(1);
     expect(card.attackFine).toBe(0);
     expect(nearestUpgrade(card)?.stat).toBeTruthy();
+  });
+});
+
+describe('discardImpact', () => {
+  const card = (
+    instanceId: string,
+    templateId: string,
+    arrows: Direction[],
+    battleClass: BattleClass = 'P',
+  ) => makeCard({ instanceId, templateId, displayName: templateId, arrows, battleClass });
+
+  it('charges 10 for the last copy of a type', () => {
+    const a = card('a', 'goblin', ['N']);
+    const b = card('b', 'fang', ['E']);
+    const impact = discardImpact(a, [a, b]);
+    expect(impact.losesType).toBe(true);
+    expect(impact.points).toBe(15); // 10 type + 5 arrows
+  });
+
+  it('charges nothing when a duplicate still covers both properties', () => {
+    const a = card('a', 'goblin', ['N']);
+    const dup = card('b', 'goblin', ['N']);
+    const impact = discardImpact(a, [a, dup]);
+    expect(impact.points).toBe(0);
+    expect(impact.losesType).toBe(false);
+    expect(impact.losesArrows).toBe(false);
+  });
+
+  // The trap the old per-card attribution fell into: with two cards sharing a
+  // mask it credited only the first, so discarding it looked like a 5-point
+  // loss even though the second still covers the pattern.
+  it('does not charge for an arrow pattern another card still has', () => {
+    const a = card('a', 'goblin', ['N']);
+    const b = card('b', 'fang', ['N']);
+    const impact = discardImpact(a, [a, b]);
+    expect(impact.losesArrows).toBe(false);
+    expect(impact.points).toBe(10); // type only
+  });
+
+  it('charges 5 when the arrow pattern is unique to this card', () => {
+    const a = card('a', 'goblin', ['N', 'E']);
+    const dup = card('b', 'goblin', ['S']);
+    const other = card('c', 'fang', ['S']);
+    const impact = discardImpact(a, [a, dup, other]);
+    expect(impact.losesType).toBe(false);
+    expect(impact.losesArrows).toBe(true);
+    expect(impact.points).toBe(5);
+  });
+
+  it('charges for losing the best class of a template', () => {
+    const strong = card('a', 'goblin', ['N'], 'A');
+    const weak = card('b', 'goblin', ['E'], 'P');
+    const impact = discardImpact(strong, [strong, weak]);
+    expect(impact.losesClass).toBe(2);
+    expect(impact.reasons.join(' ')).toMatch(/best class/);
+  });
+
+  it('is never negative', () => {
+    const a = card('a', 'goblin', ['N']);
+    expect(discardImpact(a, [a]).points).toBeGreaterThanOrEqual(0);
+    expect(discardImpact(a, []).points).toBe(0);
   });
 });

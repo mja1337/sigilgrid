@@ -12,13 +12,15 @@ import {
   strategyByName,
   type GameAction,
   type MatchEvent,
+  type CardInstance,
   type MatchState,
   type PlacementPreview,
 } from '@sigilgrid/core';
-import { CONTENT_VERSION, ENCOUNTERS, instantiateId, LORE } from '@sigilgrid/content';
+import { COLLECTION_CAP, CONTENT_VERSION, ENCOUNTERS, instantiateId, LORE } from '@sigilgrid/content';
 import { StoredReplay } from '@sigilgrid/protocol';
 import { useGame } from '../GameContext.tsx';
-import { applyMatchToSave } from '../progress.ts';
+import { applyMatchToSave, claimLoot, lootCandidates } from '../progress.ts';
+import { ROLL_SETTLE_MS } from '../components/rollTiming.ts';
 import { BoardView } from '../components/Board.tsx';
 import { CardBack } from '../components/CardBack.tsx';
 import { CardFace, InspectPanel } from '../components/CardFace.tsx';
@@ -41,7 +43,8 @@ export function PlayScreen() {
   const storyBoard = Boolean(mode === 'story' && encounter);
   const replayId = params.get('replay');
 
-  const [dialogue, setDialogue] = useState<'pre' | 'play' | 'post' | 'epilogue'>('pre');
+  const [dialogue, setDialogue] = useState<'pre' | 'play' | 'post' | 'loot' | 'epilogue'>('pre');
+  const [lootTaken, setLootTaken] = useState<string | null>(null);
   const [state, setState] = useState<MatchState | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [focusCell, setFocusCell] = useState(0);
@@ -107,13 +110,22 @@ export function PlayScreen() {
     return {
       think: Math.round(720 * m * f),
       place: Math.round(520 * m * f),
-      combat: Math.max(1600, Math.round(2400 * m * f)),
+      // Never shorter than the roll, or the overlay would close mid-spin.
+      combat: Math.max(ROLL_SETTLE_MS + 700, Math.round(2400 * m * f)),
     };
   }
 
   function playCombat(events: MatchEvent[]): Promise<void> {
-    const interesting = events.filter((e) => e.kind === 'battle' || e.kind === 'unopposed' || e.kind === 'combo');
-    if (!interesting.length) return Promise.resolve();
+    // Board FX still flash for unopposed captures; only a clash or a combo is
+    // worth stopping the turn for.
+    const interesting = events.filter((e) => e.kind === 'battle' || e.kind === 'combo');
+    if (!interesting.length) {
+      setFx((cur) => ({
+        ...cur,
+        captured: events.filter((e) => e.kind === 'unopposed').map((e) => e.cell),
+      }));
+      return Promise.resolve();
+    }
     const captured = [
       ...events.filter((e) => e.kind === 'unopposed').map((e) => e.cell),
       ...events.filter((e) => e.kind === 'combo').flatMap((e) => e.convertedCells),
@@ -335,7 +347,11 @@ export function PlayScreen() {
   const hand = state ? state.hands.player.map((id) => state.cards[id]!) : [];
   const ghost = encounter?.id === 't1' && state ? suggestUnopposed(state, selected) : undefined;
 
-  function finishToSave(resultState: MatchState, epilogue?: 'seal' | 'use') {
+  function finishToSave(
+    resultState: MatchState,
+    epilogue?: 'seal' | 'use',
+    loot?: CardInstance | null,
+  ) {
     const replay: StoredReplay = {
       protocolVersion: 1,
       config: {
@@ -350,7 +366,7 @@ export function PlayScreen() {
       createdAt: new Date().toISOString(),
     };
     patch((s) => {
-      const next = applyMatchToSave(s, {
+      let next = applyMatchToSave(s, {
         mode,
         encounter,
         result: resultState,
@@ -358,6 +374,7 @@ export function PlayScreen() {
         wager,
         epilogue,
       });
+      if (loot && encounter) next = claimLoot(next, loot, encounter.id);
       return { ...next, replays: [...next.replays, replay].slice(-30) };
     });
   }
@@ -408,6 +425,10 @@ export function PlayScreen() {
               className="btn"
               data-testid="post-continue"
               onClick={() => {
+                if (state.winner === 'player' && lootCandidates(state).length > 0) {
+                  setDialogue('loot');
+                  return;
+                }
                 finishToSave(state);
                 nav('/story');
               }}
@@ -416,6 +437,58 @@ export function PlayScreen() {
             </button>
           )}
           {encounter.practiceRematch && <Link className="btn ghost" to={`/play?mode=story&encounter=${encounter.id}&seed=${seed + 1}`}>Practice rematch</Link>}
+        </div>
+      </div>
+    );
+  }
+
+  if (dialogue === 'loot' && encounter) {
+    const spoils = lootCandidates(state);
+    const full = save.collection.length >= COLLECTION_CAP;
+    return (
+      <div className="modal">
+        <div className="modal-card loot-picker" data-testid="dialogue-loot">
+          <h2>Spoils of the rite</h2>
+          <p>
+            You turned {spoils.length}{' '}
+            {spoils.length === 1 ? 'sigil' : 'sigils'} of {encounter.opponentName}&rsquo;s.{' '}
+            {spoils.length === 1 ? 'Take it — or leave it.' : 'Take one — or leave them all.'}
+          </p>
+          {full && (
+            <p className="warn-block" data-testid="loot-full">
+              Your album is full at {COLLECTION_CAP}. Discard something in the Workshop before you can take a spoil.
+            </p>
+          )}
+          <div className="loot-row">
+            {spoils.map((c) => (
+              <button
+                key={c.instanceId}
+                type="button"
+                className={`loot-option ${lootTaken === c.instanceId ? 'chosen' : ''}`}
+                data-testid={`loot-${c.templateId}`}
+                disabled={full}
+                onClick={() => setLootTaken(lootTaken === c.instanceId ? null : c.instanceId)}
+              >
+                <CardFace card={c} />
+              </button>
+            ))}
+          </div>
+          <p className="muted" data-testid="loot-choice">
+            {lootTaken
+              ? `Taking ${spoils.find((c) => c.instanceId === lootTaken)?.displayName}`
+              : 'Nothing selected'}
+          </p>
+          <button
+            className="btn"
+            data-testid="loot-confirm"
+            onClick={() => {
+              const prize = spoils.find((c) => c.instanceId === lootTaken) ?? null;
+              finishToSave(state, undefined, prize);
+              nav('/story');
+            }}
+          >
+            {lootTaken ? 'Take it and continue' : 'Take nothing'}
+          </button>
         </div>
       </div>
     );

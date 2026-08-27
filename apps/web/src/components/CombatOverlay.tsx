@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { type MatchEvent, type MatchState } from '@sigilgrid/core';
+import { ROLL_SETTLE_MS } from './rollTiming.ts';
+
+const TICK_MS = 70;
 
 export function CombatOverlay(props: {
   events: MatchEvent[];
@@ -8,7 +11,6 @@ export function CombatOverlay(props: {
   onDone: () => void;
 }) {
   const battles = props.events.filter((e) => e.kind === 'battle');
-  const unopposed = props.events.filter((e) => e.kind === 'unopposed');
   const combos = props.events.filter((e) => e.kind === 'combo');
   const [tick, setTick] = useState(0);
 
@@ -25,21 +27,21 @@ export function CombatOverlay(props: {
     const id = window.setInterval(() => {
       n += 1;
       setTick(n);
-    }, 70);
+    }, TICK_MS);
     return () => window.clearInterval(id);
   }, []);
 
   const battle = battles[0];
+  // Only a real clash earns a caption. Unopposed captures used to raise one and
+  // it interrupted the turn to announce something the board already shows.
   const caption =
     battle && battle.kind === 'battle'
-      ? tick > 12
+      ? tick * TICK_MS >= ROLL_SETTLE_MS
         ? `${battle.winner === 'player' ? 'You' : 'Opponent'} win the clash  ${battle.detail.attackFinal} vs ${battle.detail.defenseFinal}`
         : 'Rolling…'
-      : unopposed.length
-        ? `Unopposed capture ×${unopposed.length}`
-        : combos.length
-          ? 'Combo!'
-          : '';
+      : combos.length
+        ? 'Combo!'
+        : '';
 
   return (
     <div className="combat-hud" role="status" aria-label="Card battle">
