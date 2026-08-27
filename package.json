@@ -1,0 +1,20 @@
+{
+  "name": "sigilgrid",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @sigilgrid/web",
+    "build": "npm run build -w @sigilgrid/web",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @sigilgrid/web",
+    "validate:content": "npm run validate -w @sigilgrid/content"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
