@@ -13,13 +13,32 @@ npm run dev
 
 Open `http://localhost:5174` (this project uses 5174 so it does not collide with other Vite apps on 5173). Story Circuit starts with three tutorial rites, then the rest of the twelve-encounter campaign.
 
+## Mobile
+
+The play screen is sized to fit one phone screen with no scrolling in either
+axis: card size is solved from whichever runs out first, five cards across the
+hand or four board rows down, against `100dvh` so it adapts to browser chrome.
+Landscape keeps the seats beside the board and lays the hand out two-wide.
+Placement works by tap-to-select then tap-a-square, or by dragging a card onto
+the grid; long-press a card anywhere to inspect its stats, arrows and mastery.
+
+## Saves
+
+Progress is held in `localStorage` under `sigilgrid.save.v1`, so it is per-browser
+and per-device. Settings offers **Export save** (downloads
+`sigilgrid-save-YYYY-MM-DD.json`, falling back to the clipboard where a browser
+blocks scripted downloads) and **Import save** (file picker, or paste the JSON).
+Imports are shape-checked before anything is written, so a corrupt file is
+refused rather than persisted, and an older save is reconciled against the
+current content version on the way in.
+
 ## Stack
 
 TypeScript monorepo:
 
 - `packages/core` — deterministic rules, seeded RNG, AI strategies
 - `packages/protocol` — `MatchTransport`, snapshots, local transport
-- `packages/content` — 36 templates, campaign, lore
+- `packages/content` — 100 card templates, the twelve-encounter campaign, lore
 - `apps/web` — React UI, localStorage saves, GitHub Pages build
 
 The client never mutates board state. `reduce(state, action)` returns `{ nextState, events }`. Core never calls `Math.random()`.
@@ -27,8 +46,14 @@ The client never mutates board state. `reduce(state, action)` returns `{ nextSta
 ## Test
 
 ```bash
-npm test
-npm run test:e2e
+npm test          # unit + rules suites across all workspaces
+npm run test:e2e  # Playwright, chromium + mobile (iPhone 13) projects
+```
+
+The end-to-end suite needs browsers once per machine:
+
+```bash
+npx playwright install chromium
 ```
 
 ## GitHub Pages

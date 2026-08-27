@@ -19,9 +19,9 @@ export function StoryScreen() {
             Act {act} — {ACTS[act - 1]}
           </h2>
           {ENCOUNTERS.filter((e) => e.act === act).map((e) => {
-            const unlocked =
-              e.id === 't1' || save.campaign.completed.includes(e.id) || save.campaign.nextId === e.id ||
-              ENCOUNTERS.findIndex((x) => x.id === e.id) <= save.campaign.completed.length;
+            const idx = ENCOUNTERS.findIndex((x) => x.id === e.id);
+            const previous = idx > 0 ? ENCOUNTERS[idx - 1] : undefined;
+            const unlocked = e.id === 't1' || save.campaign.completed.includes(e.id) || Boolean(previous && save.campaign.completed.includes(previous.id));
             return (
               <div key={e.id} className="mode-card" style={{ marginBottom: 8, opacity: unlocked ? 1 : 0.45 }}>
                 <h3 style={{ margin: '0 0 0.25rem' }}>{e.title}</h3>

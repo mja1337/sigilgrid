@@ -8,6 +8,7 @@ import {
   previewPlacement,
   reduce,
   scoreBoard,
+  STAT_LABEL,
   strategyByName,
   type GameAction,
   type MatchEvent,
@@ -17,6 +18,7 @@ import {
 import { CONTENT_VERSION, ENCOUNTERS, instantiateId, LORE } from '@sigilgrid/content';
 import { StoredReplay } from '@sigilgrid/protocol';
 import { useGame } from '../GameContext.tsx';
+import { applyMatchToSave } from '../progress.ts';
 import { BoardView } from '../components/Board.tsx';
 import { CardBack } from '../components/CardBack.tsx';
 import { CardFace, InspectPanel } from '../components/CardFace.tsx';
@@ -196,7 +198,12 @@ export function PlayScreen() {
   function onHandPointerDown(e: React.PointerEvent, instanceId: string) {
     if (busy || showKickoff || combatEvents) return;
     if (state?.currentPlayer !== 'player') return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer already released or retargeted; the window listeners still
+      // drive the drag, so this is not worth throwing over.
+    }
     setSelected(instanceId);
     setPreview(null);
     dragOrigin.current = { id: instanceId, x: e.clientX, y: e.clientY };
@@ -343,56 +350,15 @@ export function PlayScreen() {
       createdAt: new Date().toISOString(),
     };
     patch((s) => {
-      const collection = s.collection.map((c) => resultState.cards[c.instanceId] ?? c);
-      const extra = Object.values(resultState.cards).filter((c) => !collection.some((x) => x.instanceId === c.instanceId) && c.instanceId.startsWith('p-'));
-      let next = {
-        ...s,
-        collection: [...collection, ...extra],
-        replays: [...s.replays, replay].slice(-30),
-      };
-      if (mode === 'story' && encounter) {
-        const completed = next.campaign.completed.includes(encounter.id)
-          ? next.campaign.completed
-          : [...next.campaign.completed, encounter.id];
-        const idx = ENCOUNTERS.findIndex((e) => e.id === encounter.id);
-        const nxt = ENCOUNTERS[idx + 1];
-        next = {
-          ...next,
-          campaign: {
-            ...next.campaign,
-            completed,
-            nextId: nxt?.id ?? encounter.id,
-            epilogue: epilogue ?? next.campaign.epilogue,
-          },
-          wagerUnlocked: completed.includes('a2-mage') || next.wagerUnlocked,
-        };
-        for (const r of encounter.rewards) {
-          if (r.kind === 'card') {
-            next.collection.push(instantiateId(r.templateId, seed + 500, 'reward', `reward-${r.templateId}-${Date.now()}`));
-          }
-          if (r.kind === 'seal') next.seals += r.count;
-          if (r.kind === 'lore') next.loreIds = [...new Set([...next.loreIds, r.id])];
-          if (r.kind === 'cosmetic') next.unlockedCosmetics = [...new Set([...next.unlockedCosmetics, r.id])];
-          if (r.kind === 'pack') {
-            next.collection.push(instantiateId('ramuh', seed + 700, 'drop', `pack-${Date.now()}`));
-          }
-        }
-      }
-      if (mode === 'daily') {
-        const sc = score.player - score.opponent;
-        const date = new Date().toISOString().slice(0, 10);
-        const best = next.daily.date === date ? Math.max(next.daily.bestScore ?? -99, sc) : sc;
-        next.daily = { date, bestScore: best };
-      }
-      if (wager && resultState.winner === 'opponent') {
-        const deck = next.decks.find((d) => d.id === next.activeDeckId);
-        const lost = deck?.instanceIds[0];
-        if (lost) {
-          next.collection = next.collection.filter((c) => c.instanceId !== lost);
-          next.decks = next.decks.map((d) => ({ ...d, instanceIds: d.instanceIds.filter((id) => id !== lost) }));
-        }
-      }
-      return next;
+      const next = applyMatchToSave(s, {
+        mode,
+        encounter,
+        result: resultState,
+        seed,
+        wager,
+        epilogue,
+      });
+      return { ...next, replays: [...next.replays, replay].slice(-30) };
     });
   }
 
@@ -485,7 +451,7 @@ export function PlayScreen() {
           <div className="name-plate">{encounter?.opponentName ?? 'Opponent'}</div>
           <div className="hand-stack">
             {state.hands.opponent.map((id) => (
-              <CardBack key={id} label="Facedown card" />
+              <CardBack key={id} variant={save.backId} label="Facedown card" />
             ))}
           </div>
         </aside>
@@ -602,7 +568,7 @@ export function PlayScreen() {
                   })
                 }
               >
-                {o.stat} +1
+                {STAT_LABEL[o.stat]} +1 pip
               </button>
             ))}
           </div>
@@ -619,10 +585,10 @@ export function PlayScreen() {
               className="btn"
               data-testid="match-continue"
               onClick={() => {
-                if (mode === 'story' && encounter) setDialogue('post');
+                if (mode === 'story' && encounter && state.winner === 'player') setDialogue('post');
                 else {
                   finishToSave(state);
-                  nav('/');
+                  nav(mode === 'story' ? '/story' : '/');
                 }
               }}
             >
@@ -659,7 +625,9 @@ export function PlayScreen() {
           </div>
         </div>
       )}
-      {inspectCard && <InspectPanel card={inspectCard} onClose={() => setInspect(null)} />}
+      {inspectCard && (
+        <InspectPanel card={inspectCard} collection={save.collection} onClose={() => setInspect(null)} />
+      )}
     </div>
   );
 }

@@ -1,4 +1,10 @@
-import { CONTENT_VERSION } from '@sigilgrid/content';
+import {
+  CONTENT_VERSION,
+  createStarterCollection,
+  decksFromCollection,
+  templateById,
+} from '@sigilgrid/content';
+import type { CardInstance } from '@sigilgrid/core';
 
 export type Settings = {
   classicOpacity: boolean;
@@ -35,7 +41,7 @@ export type SaveGame = {
   seals: number;
   loreIds: string[];
   wagerUnlocked: boolean;
-  daily: { date: string; bestScore: number | null };
+  daily: { date: string; bestScore: number | null; packClaimed?: boolean };
   replays: import('@sigilgrid/protocol').StoredReplay[];
 };
 
@@ -50,13 +56,13 @@ export const defaultSettings = (): Settings => ({
 });
 
 export function emptySave(collection: SaveGame['collection']): SaveGame {
-  const beginner = collection.slice(0, 5).map((c) => c.instanceId);
+  const decks = decksFromCollection(collection);
   return {
     version: 1,
     contentVersion: CONTENT_VERSION,
     collection,
-    decks: [{ id: 'beginner', name: 'Beginner balanced', instanceIds: beginner }],
-    activeDeckId: 'beginner',
+    decks,
+    activeDeckId: decks[0]?.id ?? 'beginner',
     campaign: { completed: [], nextId: 't1', finaleRound: 0 },
     settings: defaultSettings(),
     unlockedCosmetics: ['frame-plain', 'back-plain'],
@@ -78,12 +84,86 @@ export interface SaveRepository {
   import(json: string): SaveGame;
 }
 
-function migrate(raw: unknown): SaveGame {
-  const data = raw as SaveGame;
-  if (!data || data.version !== 1) {
-    throw new Error('unsupported save');
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * A save is written to localStorage before it is ever rendered, so a
+ * structurally broken import would brick the game on the next reload. Check
+ * the shape up front rather than trusting `version`.
+ */
+export function isSaveGame(raw: unknown): raw is SaveGame {
+  if (!isObj(raw) || raw.version !== 1) return false;
+  if (typeof raw.contentVersion !== 'string') return false;
+  if (!Array.isArray(raw.collection) || !raw.collection.every(isObj)) return false;
+  if (!Array.isArray(raw.decks)) return false;
+  if (!raw.decks.every((d) => isObj(d) && typeof d.id === 'string' && Array.isArray(d.instanceIds))) {
+    return false;
   }
-  return data;
+  if (typeof raw.activeDeckId !== 'string') return false;
+  if (!isObj(raw.campaign) || !Array.isArray(raw.campaign.completed)) return false;
+  if (!isObj(raw.settings) || !isObj(raw.daily)) return false;
+  if (typeof raw.seals !== 'number' || !Number.isFinite(raw.seals)) return false;
+  if (!Array.isArray(raw.loreIds) || !Array.isArray(raw.unlockedCosmetics)) return false;
+  if (typeof raw.frameId !== 'string' || typeof raw.backId !== 'string') return false;
+  if (!Array.isArray(raw.replays)) return false;
+  return true;
+}
+
+function migrate(raw: unknown): SaveGame {
+  if (!isSaveGame(raw)) {
+    throw new Error('That file is not a Sigil Grid save.');
+  }
+  return raw;
+}
+
+/** Re-point cards at current template data, leaving earned progress alone. */
+function syncCollection(cards: CardInstance[]): CardInstance[] {
+  return cards.map((c) => {
+    try {
+      const t = templateById(c.templateId);
+      const unupgraded = c.masteryLevel === 0 && c.battleHistory.wins === 0;
+      return {
+        ...c,
+        displayName: t.displayName,
+        ...(unupgraded
+          ? {
+              attack: t.attack,
+              battleClass: t.battleClass,
+              physicalDefense: t.physicalDefense,
+              magicalDefense: t.magicalDefense,
+              attackFine: c.attackFine ?? 0,
+              physicalFine: c.physicalFine ?? 0,
+              magicalFine: c.magicalFine ?? 0,
+            }
+          : {}),
+      };
+    } catch {
+      return c;
+    }
+  });
+}
+
+/**
+ * Bring a save from any source — localStorage or an imported file — up to the
+ * current content version. Shared so an import cannot skip the step a normal
+ * load performs.
+ */
+export function reconcileSave(loaded: SaveGame): SaveGame {
+  if (loaded.contentVersion === CONTENT_VERSION) {
+    return { ...loaded, collection: syncCollection(loaded.collection) };
+  }
+  return {
+    ...emptySave(createStarterCollection()),
+    settings: loaded.settings,
+    campaign: loaded.campaign,
+    unlockedCosmetics: loaded.unlockedCosmetics,
+    frameId: loaded.frameId,
+    backId: loaded.backId,
+    seals: loaded.seals,
+    loreIds: loaded.loreIds,
+    wagerUnlocked: loaded.wagerUnlocked,
+  };
 }
 
 export function createLocalSaveRepository(): SaveRepository {
@@ -109,7 +189,13 @@ export function createLocalSaveRepository(): SaveRepository {
       return JSON.stringify(safe, null, 2);
     },
     import(json: string) {
-      const data = migrate(JSON.parse(json));
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        throw new Error('That file is not valid JSON.');
+      }
+      const data = reconcileSave(migrate(parsed));
       this.save(data);
       return data;
     },

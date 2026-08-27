@@ -2,21 +2,16 @@ import { resolveBattle } from './battle.ts';
 import { applyBlocks, emptyBoard, generateBlockedCells } from './board.ts';
 import { cloneCard, cloneState } from './clone.ts';
 import { neighbor } from './directions.ts';
-import { asHex } from './hex.ts';
 import { contactsFrom, legalCells, otherPlayer, scoreBoard } from './legal.ts';
-import { canLevel, eligibleStats, isChoiceLevel, MASTERY_CAP, xpToNext } from './mastery.ts';
+import {
+  addHidden,
+  applyDisplayedPip,
+  eligibleStats,
+  HIDDEN_PER_WIN,
+  isChoiceLevel,
+} from './mastery.ts';
 import { createRng, rngFromState, type Rng } from './rng.ts';
-import type {
-  CardInstance,
-  GameAction,
-  Hex,
-  MatchConfig,
-  MatchEvent,
-  MatchState,
-  NumericStat,
-  PlayerId,
-  ReduceResult,
-} from './types.ts';
+import type { CardInstance, GameAction, MatchConfig, MatchEvent, MatchState, PlayerId, ReduceResult } from './types.ts';
 import { RULES_VERSION } from './types.ts';
 
 let eventSeq = 0;
@@ -185,13 +180,6 @@ function finishMatch(state: MatchState, rng: Rng, events: MatchEvent[]): void {
   }
 }
 
-function applyStat(card: CardInstance, stat: NumericStat): { from: Hex; to: Hex } {
-  const from = card[stat];
-  const to = asHex(Math.min(15, from + 1));
-  card[stat] = to;
-  return { from, to };
-}
-
 function applyMastery(state: MatchState, rng: Rng, events: MatchEvent[]): void {
   const winner = state.winner;
   const iso = new Date(0).toISOString();
@@ -201,33 +189,27 @@ function applyMastery(state: MatchState, rng: Rng, events: MatchEvent[]): void {
     const card = state.cards[id];
     if (!card) continue;
     const owner = ownerOfPlayed(state, id);
-    const bonus = winner === owner ? 2 : 0;
-    const gained = 1 + bonus;
-    card.masteryXp += gained;
     card.battleHistory = { ...card.battleHistory, placements: card.battleHistory.placements + 1 };
     card.history = [...card.history, { kind: 'match', at: iso, result: winner ?? 'draw', placements: 1 }];
     if (winner === owner) card.victories += 1;
 
     let leveled = false;
-    const mayLevel = owner === winner;
-    while (mayLevel && canLevel(card.masteryXp, card.masteryLevel)) {
-      card.masteryXp -= xpToNext(card.masteryLevel);
-      const nextLevel = card.masteryLevel + 1;
-      card.masteryLevel = Math.min(MASTERY_CAP, nextLevel);
-      leveled = true;
+    let gained = 0;
+    if (winner === owner) {
       const eligible = eligibleStats(card);
-      if (eligible.length === 0) break;
-      if (isChoiceLevel(card.masteryLevel) && owner === 'player') {
-        const opts = pickTwo(rng, eligible);
-        pending.push({
-          instanceId: id,
-          options: opts.map((stat) => ({ stat })),
-        });
-      } else {
+      if (eligible.length > 0) {
+        gained = HIDDEN_PER_WIN;
         const stat = rng.pick(eligible);
-        const { from, to } = applyStat(card, stat);
-        card.history = [...card.history, { kind: 'stat', at: iso, stat, from, to, source: 'random' }];
-        events.push(attachEvent(state, { id: eid(), kind: 'masteryStat', instanceId: id, stat, from, to }));
+        const { from, to, pipUp } = addHidden(card, stat, gained);
+        if (pipUp) {
+          leveled = true;
+          card.history = [...card.history, { kind: 'stat', at: iso, stat, from, to, source: 'random' }];
+          events.push(attachEvent(state, { id: eid(), kind: 'masteryStat', instanceId: id, stat, from, to }));
+          if (isChoiceLevel(card.masteryLevel) && owner === 'player') {
+            const opts = pickTwo(rng, eligibleStats(card).length ? eligibleStats(card) : [stat]);
+            pending.push({ instanceId: id, options: opts.map((s) => ({ stat: s })) });
+          }
+        }
       }
     }
 
@@ -424,7 +406,7 @@ export function reduce(state: MatchState, action: GameAction): ReduceResult {
     if (!opt) return illegal(state, 'bad option');
     const card = next.cards[action.instanceId];
     if (!card) return illegal(state, 'missing card');
-    const { from, to } = applyStat(card, opt.stat);
+    const { from, to } = applyDisplayedPip(card, opt.stat);
     card.history = [
       ...card.history,
       { kind: 'stat', at: new Date(0).toISOString(), stat: opt.stat, from, to, source: 'choice' },

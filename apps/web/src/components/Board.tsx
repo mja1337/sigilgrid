@@ -10,7 +10,7 @@ import {
   type PlacementPreview,
 } from '@sigilgrid/core';
 import { CardFace } from './CardFace.tsx';
-import blockStone from '../assets/block-stone.png';
+import blockStone from '../assets/block-stone.webp';
 
 function dirBetween(from: number, to: number): Direction | null {
   const [r0, c0] = cellToRc(from);

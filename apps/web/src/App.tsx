@@ -11,7 +11,9 @@ function ContrastSync() {
   const { save } = useGame();
   useEffect(() => {
     document.body.classList.toggle('high-contrast', save.settings.highContrast);
-  }, [save.settings.highContrast]);
+    document.body.dataset.frame = save.frameId;
+    document.body.dataset.back = save.backId;
+  }, [save.settings.highContrast, save.frameId, save.backId]);
   return null;
 }
 
@@ -31,7 +33,7 @@ export function App() {
           <Route path="/play" element={<PlayScreen />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        <footer style={{ textAlign: 'center', padding: '2rem', color: 'var(--parchment-dim)', fontSize: 12 }}>
+        <footer className="site-footer" style={{ textAlign: 'center', padding: '2rem', color: 'var(--parchment-dim)', fontSize: 12 }}>
           <Link to="/">Sigil Grid: Ashfall</Link> · inspired by directional tactical card games
         </footer>
       </HashRouter>

@@ -6,16 +6,18 @@ const portraits = {
   ...import.meta.glob('../assets/cards/card-*.png', { eager: true, import: 'default' }),
 } as Record<string, string>;
 
-function portraitSrc(cardNumber: number): string | undefined {
-  const n = String(cardNumber).padStart(3, '0');
-  return portraits[`../assets/cards/card-${n}.png`] ?? portraits[`../assets/cards/card-${n}.webp`];
+const portraitsByNumber: Record<number, string> = {};
+for (const [path, src] of Object.entries(portraits)) {
+  const m = path.match(/card-(\d{3})\.(?:webp|png)$/);
+  if (!m) continue;
+  portraitsByNumber[Number(m[1])] = src;
 }
 
-export const CARD_ART_COUNT = new Set(
-  Object.keys(portraits)
-    .map((key) => key.match(/card-(\d{3})\./)?.[1])
-    .filter(Boolean),
-).size;
+function portraitSrc(cardNumber: number): string | undefined {
+  return portraitsByNumber[cardNumber];
+}
+
+export const CARD_ART_COUNT = Object.keys(portraitsByNumber).length;
 
 export function CardArt({ templateId }: { templateId: string }) {
   let cardNumber: number | undefined;
@@ -42,7 +44,7 @@ function ParametricArt({ templateId, silhouette }: { templateId: string; silhoue
   const fill2 = `hsl(${(hue + 28) % 360} 38% 42%)`;
   const glow = `hsl(${hue} 50% 78%)`;
   return (
-    <svg viewBox="0 0 80 88" className="card-art-svg" aria-hidden>
+    <svg viewBox="0 0 80 88" preserveAspectRatio="xMidYMid slice" className="card-art-svg" aria-hidden>
       <defs>
         <radialGradient id={`sky-${uid}`} cx="50%" cy="30%" r="70%">
           <stop offset="0%" stopColor="#f7ead0" />

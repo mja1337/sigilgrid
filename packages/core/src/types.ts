@@ -22,6 +22,10 @@ export type CardInstance = {
   battleClass: BattleClass;
   physicalDefense: Hex;
   magicalDefense: Hex;
+  /** 0–15 remainder toward the next displayed Attack pip (Tetra Master hidden stat). */
+  attackFine: number;
+  physicalFine: number;
+  magicalFine: number;
   masteryXp: number;
   masteryLevel: number;
   victories: number;

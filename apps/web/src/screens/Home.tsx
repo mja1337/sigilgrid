@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { COLLECTOR_MAX, collectorScore } from '@sigilgrid/core';
 import { useGame } from '../GameContext.tsx';
 
 export function HomeScreen() {
   const { save } = useGame();
+  const rank = collectorScore(save.collection);
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -31,7 +33,7 @@ export function HomeScreen() {
         </Link>
         <Link className="mode-card" to="/collection" data-testid="mode-collection">
           <h2>Collection & Workshop</h2>
-          <p>{save.collection.length} sigils · {save.seals} seals</p>
+          <p>{save.collection.length} sigils · {save.seals} seals to spend in the shop · {rank.title} {rank.points}/{COLLECTOR_MAX}</p>
         </Link>
         {save.wagerUnlocked && (
           <Link className="mode-card" to="/wager" data-testid="mode-wager">

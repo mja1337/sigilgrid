@@ -16,5 +16,11 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // iPhone 13 viewport, touch and mobile UA on Chromium, so the suite runs
+    // without downloading WebKit. Swap browserName to 'webkit' (and run
+    // `npx playwright install webkit`) for real Safari fidelity.
+    { name: 'mobile', use: { ...devices['iPhone 13'], browserName: 'chromium' } },
+  ],
 });

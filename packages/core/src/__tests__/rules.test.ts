@@ -7,7 +7,7 @@ import { resolveBattle } from '../battle.ts';
 import { createRng } from '../rng.ts';
 import { hexBand, bandLabel, formatHex } from '../hex.ts';
 import { generateBlockedCells } from '../board.ts';
-import { xpToNext } from '../mastery.ts';
+import { HIDDEN_PER_PIP } from '../mastery.ts';
 import type { GameAction } from '../types.ts';
 
 function five(prefix: string, arrows: ('N' | 'E' | 'S' | 'W')[] = ['N']) {
@@ -319,6 +319,6 @@ describe('mastery', () => {
     // 3 player vs 3 opponent — may draw; force by checking xp on placed cards
     const p0 = state.cards['p-0']!;
     expect(p0.battleHistory.placements).toBeGreaterThanOrEqual(1);
-    expect(xpToNext(0)).toBe(3);
+    expect(HIDDEN_PER_PIP).toBe(16);
   });
 });

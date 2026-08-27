@@ -7,6 +7,7 @@ export * from './legal.ts';
 export * from './battle.ts';
 export * from './match.ts';
 export * from './mastery.ts';
+export * from './collector.ts';
 export * from './preview.ts';
 export * from './replay.ts';
 export * from './factory.ts';

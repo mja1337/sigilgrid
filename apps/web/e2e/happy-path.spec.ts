@@ -29,7 +29,6 @@ test('fresh load completes tutorial 1', async ({ page }) => {
     const cells = page.locator('.cell.legal');
     if ((await cells.count()) > 0) {
       await cells.first().click();
-      await cells.first().click();
     }
     const orderBtn = page.getByTestId('battle-order-confirm');
     if (await orderBtn.isVisible().catch(() => false)) await orderBtn.click();

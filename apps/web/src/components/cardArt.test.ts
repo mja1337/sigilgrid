@@ -7,5 +7,6 @@ describe('card art', () => {
     expect(TEMPLATES).toHaveLength(100);
     expect(new Set(TEMPLATES.map((t) => t.cardNumber)).size).toBe(100);
     expect(CARD_ART_COUNT).toBe(100);
+    expect(TEMPLATES.every((t) => t.cardNumber >= 1 && t.cardNumber <= 100)).toBe(true);
   });
 });

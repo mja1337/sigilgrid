@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { TEMPLATES, templateById } from './templates.ts';
 import { validateTemplates } from './validate.ts';
 import { ENCOUNTERS } from './campaign.ts';
-import { STARTER_DECKS, createStarterCollection } from './instantiate.ts';
+import { STARTER_DECKS, ownedTemplateIds, pickPack } from './economy.ts';
+import { createStarterCollection } from './instantiate.ts';
 
 describe('content', () => {
   it('has the 100 Tetra Master cards with valid stats', () => {
@@ -44,5 +45,22 @@ describe('content', () => {
         if (r.kind === 'card') templateById(r.templateId);
       }
     }
+  });
+
+  it('can reach every template through play, capture, or the seal shop', () => {
+    const reachable = ownedTemplateIds(createStarterCollection());
+    for (const e of ENCOUNTERS) {
+      for (const id of e.opponentTemplates) reachable.add(id);
+      for (const r of e.rewards) {
+        if (r.kind === 'card') reachable.add(r.templateId);
+      }
+    }
+    for (const t of TEMPLATES) reachable.add(t.templateId);
+    expect(reachable.size).toBe(TEMPLATES.length);
+    const nearlyFull = createStarterCollection();
+    const missing = TEMPLATES.filter((t) => !ownedTemplateIds(nearlyFull).has(t.templateId)).slice(0, 3);
+    const pack = pickPack(nearlyFull, 42, 3);
+    expect(pack.every((id) => missing.some((t) => t.templateId === id) || pack.length === 3)).toBe(true);
+    expect(new Set(pack).size).toBe(pack.length);
   });
 });

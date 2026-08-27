@@ -46,10 +46,3 @@ export const STARTER_TEMPLATE_IDS = [
 export function createStarterCollection(seed = 1001): CardInstance[] {
   return STARTER_TEMPLATE_IDS.map((id, i) => instantiateId(id, seed + i * 17, 'starter', `starter-${id}`));
 }
-
-export const STARTER_DECKS: Record<string, string[]> = {
-  beginner: ['goblin', 'fang', 'skeleton', 'flan', 'zaghnol'],
-  combo: ['bomb', 'mimic', 'mandragora', 'nymph', 'cactuar'],
-  counter: ['zombie', 'ironite', 'sahagin', 'lizardman', 'yeti'],
-  opportunistic: ['crawler', 'sand-scorpion', 'dragonfly', 'wyerd', 'flan'],
-};

@@ -14,7 +14,8 @@
   --ui: 'Avenir Next', 'Segoe UI', sans-serif;
   --radius: 10px;
   --card-w: 104px;
-  --card-h: 148px;
+  --card-h: 156px;
+  --arrow-size: 12px;
   --board-gap: 8px;
 }
 
@@ -52,14 +53,20 @@ button.btn.ghost {
   background: transparent;
 }
 
-.app-shell { max-width: 1100px; margin: 0 auto; padding: 0.75rem 1rem 3rem; }
+.app-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0.75rem max(1rem, env(safe-area-inset-right)) calc(3rem + env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+}
 .play-shell {
   max-width: none;
   min-height: 100dvh;
-  padding: 0.45rem 0.7rem 1.2rem;
+  padding: 0.45rem max(0.7rem, env(safe-area-inset-right)) calc(1.2rem + env(safe-area-inset-bottom))
+    max(0.7rem, env(safe-area-inset-left));
   background:
     radial-gradient(1000px 700px at 50% 42%, rgba(18, 10, 28, 0.25), rgba(4, 6, 12, 0.78)),
-    url('./assets/table-nebula.png') center / cover no-repeat;
+    url('./assets/table-nebula.webp') center / cover no-repeat;
   background-color: #07060c;
 }
 .topbar {
@@ -300,7 +307,7 @@ button.btn.ghost {
 .hand-column {
   overflow: visible;
   padding: 0.4rem 0.15rem 0.8rem;
-  touch-action: none;
+  touch-action: pan-y;
 }
 .hand-column .card-face {
   transition: transform 0.16s ease, box-shadow 0.16s ease;
@@ -332,15 +339,16 @@ button.btn.ghost {
 .card-face {
   width: var(--card-w);
   height: var(--card-h);
-  border-radius: 8px;
+  border-radius: 4px;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   border: 2px solid var(--gold-ox);
-  background: linear-gradient(180deg, #efe0c4, #d3bd8f);
-  color: var(--ink);
+  background: #121018;
+  color: #f4ead0;
   position: relative;
-  padding: 4px 4px 3px;
+  padding: 0;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 .card-face.owner-player {
@@ -350,6 +358,14 @@ button.btn.ghost {
 .card-face.owner-opponent {
   border-color: #d46a3c;
   background: linear-gradient(180deg, #f3d4c4, #d4896a);
+}
+body[data-frame="frame-ember"] .card-face {
+  box-shadow: 0 0 0 1px #c45a28, inset 0 0 0 1px rgba(224, 120, 40, 0.45);
+  border-color: #c47838;
+}
+body[data-frame="frame-lantern"] .card-face {
+  box-shadow: 0 0 0 1px #3a2030, inset 0 0 12px rgba(20, 8, 16, 0.35);
+  border-color: #4a2838;
 }
 .card-face.just-placed { animation: card-enter 0.45s ease; }
 .card-face.just-captured { animation: card-capture 0.55s ease; }
@@ -427,67 +443,105 @@ button.btn.ghost {
   padding: 0.45rem 0.7rem 0.45rem 1rem;
 }
 .combat-caption { margin: 0; font-size: 0.92rem; white-space: nowrap; }
-.card-face .name {
-  font-family: var(--font);
-  font-size: 0.62rem;
-  line-height: 1.15;
-  height: 1.45rem;
-  overflow: hidden;
-  text-align: center;
-  position: relative;
-  z-index: 1;
-}
 .art-window {
-  flex: 1;
-  min-height: 0;
-  margin: 8px 8px 12px;
-  border-radius: 4px;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border-radius: 2px;
   overflow: hidden;
-  border: 1px solid rgba(58, 42, 18, 0.25);
-  background: #1a2240;
+  background: #1a1028;
+  z-index: 0;
 }
 .card-art-svg, .card-art-img {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: 134%;
+  height: 134%;
+  max-width: none;
+  transform: translate(-50%, -50%);
   display: block;
 }
 .card-art-img {
-  object-fit: contain;
-  image-rendering: pixelated;
-  background: #1a2240;
+  object-fit: cover;
+  object-position: center center;
+  image-rendering: auto;
+}
+.card-hud {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: calc(var(--arrow-size) + 5px);
+  z-index: 4;
+  padding: 0.12rem 2px 0;
+  background: linear-gradient(to top, rgba(8, 10, 16, 0.78), transparent);
+  pointer-events: none;
+}
+.card-face .name {
+  position: relative;
+  z-index: 4;
+  height: 0.78rem;
+  margin: 0;
+  font-family: var(--font);
+  font-size: 0.54rem;
+  line-height: 0.78rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  padding: 0 0.1rem;
+  color: #fff6dc;
+  text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
 }
 .inspect-art { display: flex; justify-content: center; margin-bottom: 0.75rem; }
-.inspect-art .card-face { width: 140px; height: 196px; }
+.inspect-art .card-face { width: 140px; height: 210px; }
 .stat-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  background: rgba(13, 21, 36, 0.16);
-  border-radius: 4px;
+  background: rgba(8, 10, 16, 0.28);
+  border-radius: 2px;
   position: relative;
-  z-index: 1;
-  padding: 1px 0;
+  z-index: 4;
+  padding: 0;
+  color: #fff4d0;
+  text-shadow: 0 1px 1px #000;
 }
-.arrows { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.arrows {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
 .arrow {
   position: absolute;
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-bottom: 11px solid #1a140c;
-  filter: drop-shadow(0 0 1px #f4ead4);
+  width: var(--arrow-size);
+  height: calc(var(--arrow-size) * 1.15);
+  filter: drop-shadow(0 1px 1px rgba(8, 10, 16, 0.95));
+}
+.arrow svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.arrow polygon {
+  fill: #fff4d4;
+  stroke: #120c08;
+  stroke-width: 1.15;
+  stroke-linejoin: round;
 }
 .arrow.dir-N { top: 2px; left: 50%; transform: translateX(-50%); }
-.arrow.dir-NE { top: 8px; right: 5px; transform: rotate(45deg); }
-.arrow.dir-E { top: 50%; right: 2px; transform: translateY(-50%) rotate(90deg); }
-.arrow.dir-SE { bottom: 22px; right: 5px; transform: rotate(135deg); }
-.arrow.dir-S { bottom: 18px; left: 50%; transform: translateX(-50%) rotate(180deg); }
-.arrow.dir-SW { bottom: 22px; left: 5px; transform: rotate(225deg); }
-.arrow.dir-W { top: 50%; left: 2px; transform: translateY(-50%) rotate(270deg); }
-.arrow.dir-NW { top: 8px; left: 5px; transform: rotate(315deg); }
+.arrow.dir-NE { top: 5px; right: 4px; transform: rotate(45deg); }
+.arrow.dir-E { top: 50%; right: 1px; transform: translateY(-50%) rotate(90deg); }
+.arrow.dir-SE { bottom: 5px; right: 4px; transform: rotate(135deg); }
+.arrow.dir-S { bottom: 2px; left: 50%; transform: translateX(-50%) rotate(180deg); }
+.arrow.dir-SW { bottom: 5px; left: 4px; transform: rotate(225deg); }
+.arrow.dir-W { top: 50%; left: 1px; transform: translateY(-50%) rotate(270deg); }
+.arrow.dir-NW { top: 5px; left: 4px; transform: rotate(315deg); }
 
 .side-rail { font-size: 0.85rem; }
 .log { max-height: 220px; overflow: auto; font-size: 0.78rem; color: var(--parchment-dim); }
@@ -503,28 +557,196 @@ button.btn.ghost {
   max-width: 520px;
   width: 100%;
 }
+.inspect-panel {
+  max-width: 640px;
+  max-height: min(92dvh, 900px);
+  overflow: auto;
+}
+.inspect-lead { color: var(--gold); margin-top: 0; }
+.inspect-lore { color: var(--parchment-dim); font-size: 0.92rem; }
+.inspect-stats {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin: 0.75rem 0;
+}
+.inspect-stats th, .inspect-stats td {
+  text-align: left;
+  padding: 0.4rem 0.35rem;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(232, 215, 184, 0.12);
+}
+.inspect-band, .inspect-fine {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--parchment-dim);
+}
+.stat-meter {
+  height: 6px;
+  margin-top: 0.25rem;
+  background: rgba(8, 12, 22, 0.55);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.stat-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #c4a15a, #f0d078);
+}
+.collector-hud {
+  margin: 0.75rem 0 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--gold-ox);
+  border-radius: var(--radius);
+  background: var(--glass);
+}
+.collector-hud strong { color: var(--gold); }
+.collector-track {
+  height: 8px;
+  margin: 0.45rem 0 0.35rem;
+  background: rgba(8, 12, 22, 0.55);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.collector-track > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2aa8a1, #c4a15a);
+}
 .filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0; }
 .album { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 0.6rem; }
+.album .card-face { touch-action: manipulation; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
 
 @media (max-width: 840px) {
+  /* Size the card from whichever runs out first: five across the hand, or
+     four board rows plus the fixed furniture down. Keeps board and hand on
+     one screen so you never scroll mid-turn. */
+  :root {
+    /* Height budget: 4 board rows + your hand + the opponent's 0.6-scale
+       backs = 8.4 card-widths at the 1.5 aspect, over ~13.5rem of fixed
+       furniture (topbar, turn banner, name plate, paddings, gaps). */
+    --card-w: min(104px, (100vw - 3.6rem) / 5, (100vh - 15.5rem) / 8.4);
+    --card-w: min(104px, (100vw - 3.6rem) / 5, (100dvh - 15.5rem) / 8.4);
+    --card-h: calc(var(--card-w) * 1.5);
+    --arrow-size: 11px;
+    --board-gap: 0px;
+  }
+  .stat-strip { font-size: 0.64rem; }
+
+  .play-shell { padding-top: 0.3rem; }
+  .play-shell .topbar { padding: 0.2rem 0 0.4rem; }
+  .play-table { gap: 0.4rem; }
+  /* Grid items default to min-width:auto, which let the hand's intrinsic
+     width push the whole page wider than the screen. */
+  .play-table > * { min-width: 0; }
+  .opp-panel, .hand-row, .side-rail, .opp-hand, .player-hand { padding: 0.4rem; }
+  .name-plate { font-size: 0.62rem; padding: 0.18rem 0.3rem; margin-bottom: 0.3rem; }
+
   .hand-stack, .hand-column {
     flex-direction: row;
     width: 100%;
     justify-content: center;
-    overflow-x: auto;
+    gap: 0.3rem;
   }
+  /* Matches .hand-row.hand-column's specificity so the scroll actually wins. */
+  .hand-row.hand-column {
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 0.3rem 0.15rem;
+    scrollbar-width: none;
+  }
+  .hand-row.hand-column::-webkit-scrollbar { display: none; }
   .hand-column .card-face.selected {
-    transform: translateY(-18px) scale(1.08);
+    transform: translateY(-14px) scale(1.06);
   }
   .opp-hand, .player-hand { width: 100%; }
+  /* The opponent's hand is five identical backs — it earns less room than yours. */
+  .opp-hand .card-back {
+    width: calc(var(--card-w) * 0.6);
+    height: calc(var(--card-h) * 0.6);
+  }
+  .turn-banner { padding: 0.35rem 0.6rem; font-size: 0.9rem; }
   .combat-hud { width: calc(100% - 1.5rem); justify-content: space-between; }
   .combat-caption { white-space: normal; }
+  /* The play screen is sized to exactly 100dvh; the global footer would add
+     a scrollbar to a table that otherwise fits. */
+  body:has(.play-shell) .site-footer { display: none; }
+  .modal { padding: max(0.75rem, env(safe-area-inset-left)); }
+  /* 16px keeps iOS from zooming the page on focus; 44px is the touch floor.
+     Checkboxes are excluded — stretching them to 44px tall knocks their
+     labels onto the next line — and get a comfortable box instead. */
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea,
+  button,
+  .btn {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  input[type='checkbox'], input[type='radio'] {
+    width: 22px;
+    height: 22px;
+    vertical-align: -0.35em;
+    margin-right: 0.4rem;
+  }
+  .filters { gap: 0.5rem; }
+  .filters input, .filters select { flex: 1 1 8rem; min-width: 0; }
+  .modal-card { padding: 0.9rem; }
+  .inspect-stats { font-size: 0.72rem; }
+  .inspect-stats th, .inspect-stats td { padding: 0.25rem 0.2rem; }
 }
-@media (max-width: 520px) {
-  :root { --card-w: 72px; --card-h: 104px; --board-gap: 0px; }
-  .stat-strip { font-size: 0.64rem; }
+
+/* Landscape phone: height is the scarce axis, so keep the seats beside the
+   board rather than stacking them the way the portrait breakpoint does. */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 560px) {
+  :root {
+    --card-w: min(88px, (100vh - 6.4rem) / 6, (100vw - 14rem) / 4);
+    --card-w: min(88px, (100dvh - 6.4rem) / 6, (100vw - 14rem) / 4);
+    --card-h: calc(var(--card-w) * 1.5);
+    /* Three rows of two, sized off the same height budget as the board. */
+    --hand-card-w: min(72px, (100vh - 7rem) / 4.6);
+    --hand-card-w: min(72px, (100dvh - 7rem) / 4.6);
+    --arrow-size: 10px;
+  }
+  .play-table {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    align-items: center;
+  }
+  .play-table .opp-hand { order: 0; width: auto; }
+  .play-table .play-main { order: 1; }
+  .play-table .player-hand { order: 2; width: auto; }
+  .hand-stack, .hand-column { flex-direction: column; width: auto; }
+  .hand-row.hand-column { overflow: visible; }
+  .opp-hand .card-back {
+    width: calc(var(--card-w) * 0.55);
+    height: calc(var(--card-h) * 0.55);
+  }
+  .hand-column .card-face.selected { transform: translateX(-12px) scale(1.06); }
+  /* A single column of five would be taller than the board and would shrink
+     the cards past reading size. Width is the abundant axis in landscape, so
+     the hand goes two-wide and the cards get their own, larger size. */
+  .player-hand .hand-column {
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+    gap: 0.25rem;
+    justify-content: center;
+  }
+  .player-hand .hand-column .card-face {
+    width: var(--hand-card-w);
+    height: calc(var(--hand-card-w) * 1.5);
+  }
+  /* Height is the scarce axis here, so the chrome gets cut to the bone. */
+  .play-shell { padding-top: 0.2rem; }
+  .play-shell .topbar { padding: 0.1rem 0; }
+  .play-shell .brand { font-size: 0.95rem; }
+  .play-shell .brand small { display: none; }
+  .turn-banner { font-size: 0.72rem; padding: 0.15rem 0.5rem; }
+  .turn-kicker { display: none; }
+  .board-frame { padding: 0.25rem; }
+  .play-main { gap: 0.3rem; }
+  .play-table { gap: 0.3rem; }
 }

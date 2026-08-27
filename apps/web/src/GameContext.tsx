@@ -1,30 +1,12 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
-import { CONTENT_VERSION, templateById, createStarterCollection } from '@sigilgrid/content';
-import type { CardInstance } from '@sigilgrid/core';
-import { createLocalSaveRepository, emptySave, type SaveGame, type SaveRepository } from './save.ts';
-
-function syncCollection(cards: CardInstance[]): CardInstance[] {
-  return cards.map((c) => {
-    try {
-      const t = templateById(c.templateId);
-      const unupgraded = c.masteryLevel === 0 && c.battleHistory.wins === 0;
-      return {
-        ...c,
-        displayName: t.displayName,
-        ...(unupgraded
-          ? {
-              attack: t.attack,
-              battleClass: t.battleClass,
-              physicalDefense: t.physicalDefense,
-              magicalDefense: t.magicalDefense,
-            }
-          : {}),
-      };
-    } catch {
-      return c;
-    }
-  });
-}
+import { createStarterCollection } from '@sigilgrid/content';
+import {
+  createLocalSaveRepository,
+  emptySave,
+  reconcileSave,
+  type SaveGame,
+  type SaveRepository,
+} from './save.ts';
 
 type Ctx = {
   save: SaveGame;
@@ -40,20 +22,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [save, setSaveState] = useState<SaveGame>(() => {
     const loaded = repo.load();
     if (loaded) {
-      const next =
-        loaded.contentVersion === CONTENT_VERSION
-          ? { ...loaded, collection: syncCollection(loaded.collection) }
-          : {
-              ...emptySave(createStarterCollection()),
-              settings: loaded.settings,
-              campaign: loaded.campaign,
-              unlockedCosmetics: loaded.unlockedCosmetics,
-              frameId: loaded.frameId,
-              backId: loaded.backId,
-              seals: loaded.seals,
-              loreIds: loaded.loreIds,
-              wagerUnlocked: loaded.wagerUnlocked,
-            };
+      const next = reconcileSave(loaded);
       repo.save(next);
       return next;
     }
