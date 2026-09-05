@@ -199,10 +199,15 @@ button.btn.ghost {
 
 .board {
   display: grid;
-  grid-template-columns: repeat(4, var(--card-w));
-  grid-auto-rows: var(--card-h);
+  /* Fractional --card-w (every mobile breakpoint) rounds differently for a
+     track than for a cell that restates the same width, which walks the
+     column seams out of true. Sizing the box once and splitting it into
+     equal fractions leaves the remainder pixels to the grid. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
   gap: 0;
   width: calc(4 * var(--card-w));
+  height: calc(4 * var(--card-h));
   margin: 0 auto;
   position: relative;
   background:
@@ -225,9 +230,8 @@ button.btn.ghost {
   border-radius: 0;
   background: transparent;
   position: relative;
-  width: var(--card-w);
-  height: var(--card-h);
   min-width: 0;
+  min-height: 0;
   overflow: visible;
   z-index: 1;
   touch-action: manipulation;
@@ -314,10 +318,13 @@ button.btn.ghost {
   touch-action: none;
   user-select: none;
 }
+/* Outline rather than a ring shadow: the owner colour owns box-shadow on
+   these cards, and the two cues would otherwise overwrite each other. */
 .hand-column .card-face.selected {
   transform: translateX(-22px) scale(1.1);
   z-index: 6;
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.55), 0 0 0 2px #f4e2a8;
+  outline: 3px solid #f4e2a8;
+  outline-offset: 1px;
 }
 .hand-column .card-face.dragging {
   opacity: 0.28;
@@ -351,14 +358,6 @@ button.btn.ghost {
   cursor: pointer;
   overflow: hidden;
 }
-.card-face.owner-player {
-  border-color: #2aa8a1;
-  background: linear-gradient(180deg, #d7e8f4, #8fb4d4);
-}
-.card-face.owner-opponent {
-  border-color: #d46a3c;
-  background: linear-gradient(180deg, #f3d4c4, #d4896a);
-}
 body[data-frame="frame-ember"] .card-face {
   box-shadow: 0 0 0 1px #c45a28, inset 0 0 0 1px rgba(224, 120, 40, 0.45);
   border-color: #c47838;
@@ -366,6 +365,31 @@ body[data-frame="frame-ember"] .card-face {
 body[data-frame="frame-lantern"] .card-face {
   box-shadow: 0 0 0 1px #3a2030, inset 0 0 12px rgba(20, 8, 16, 0.35);
   border-color: #4a2838;
+}
+/* Owner colour is the only thing separating the two sides on a full-bleed
+   card, so it outranks the frame cosmetics rather than being repainted by
+   them. The dark inner ring keeps the bright edge readable over pale art. */
+.card-face.owner-player,
+body[data-frame] .card-face.owner-player {
+  border-width: 3px;
+  border-color: #3fc9ff;
+  background: linear-gradient(180deg, #d7e8f4, #8fb4d4);
+  box-shadow: inset 0 0 0 1px rgba(6, 24, 46, 0.9), 0 0 10px rgba(63, 201, 255, 0.45);
+}
+.card-face.owner-opponent,
+body[data-frame] .card-face.owner-opponent {
+  border-width: 3px;
+  border-color: #ff5a3c;
+  background: linear-gradient(180deg, #f3d4c4, #d4896a);
+  box-shadow: inset 0 0 0 1px rgba(48, 10, 4, 0.9), 0 0 10px rgba(255, 90, 60, 0.4);
+}
+body.high-contrast .card-face.owner-player,
+body.high-contrast[data-frame] .card-face.owner-player {
+  border-color: #7fe4ff;
+}
+body.high-contrast .card-face.owner-opponent,
+body.high-contrast[data-frame] .card-face.owner-opponent {
+  border-color: #ff8f6a;
 }
 .card-face.just-placed { animation: card-enter 0.45s ease; }
 .card-face.just-captured { animation: card-capture 0.55s ease; }
@@ -629,9 +653,12 @@ body[data-frame="frame-lantern"] .card-face {
   :root {
     /* Height budget: 4 board rows + your hand + the opponent's 0.6-scale
        backs = 8.4 card-widths at the 1.5 aspect, over ~13.5rem of fixed
-       furniture (topbar, turn banner, name plate, paddings, gaps). */
-    --card-w: min(104px, (100vw - 3.6rem) / 5, (100vh - 15.5rem) / 8.4);
-    --card-w: min(104px, (100vw - 3.6rem) / 5, (100dvh - 15.5rem) / 8.4);
+       furniture (topbar, turn banner, name plate, paddings, gaps).
+       The width budget has to cover the rail's own padding and the four
+       gaps between the five cards too, or the hand overflows by a few
+       pixels and quietly turns into a scroller that drifts out of line. */
+    --card-w: min(104px, (100vw - 4.8rem) / 5, (100vh - 15.5rem) / 8.4);
+    --card-w: min(104px, (100vw - 4.8rem) / 5, (100dvh - 15.5rem) / 8.4);
     --card-h: calc(var(--card-w) * 1.5);
     --arrow-size: 11px;
     --board-gap: 0px;
@@ -653,16 +680,19 @@ body[data-frame="frame-lantern"] .card-face {
     justify-content: center;
     gap: 0.3rem;
   }
-  /* Matches .hand-row.hand-column's specificity so the scroll actually wins. */
+  /* Matches .hand-row.hand-column's specificity so the scroll actually wins.
+     A scrolling axis forces the other one to clip, so the padding here has to
+     be wide enough to hold the selected card's growth. */
   .hand-row.hand-column {
     overflow-x: auto;
     overflow-y: visible;
-    padding: 0.3rem 0.15rem;
+    padding: 0.35rem 0.3rem;
     scrollbar-width: none;
   }
   .hand-row.hand-column::-webkit-scrollbar { display: none; }
+  /* No lift: this rail clips, and a raised card loses its top edge to it. */
   .hand-column .card-face.selected {
-    transform: translateY(-14px) scale(1.06);
+    transform: scale(1.06);
   }
   .opp-hand, .player-hand { width: 100%; }
   /* The opponent's hand is five identical backs — it earns less room than yours. */
@@ -921,9 +951,39 @@ body[data-frame="frame-lantern"] .card-face {
 
 /* ---- Loot & discard ---------------------------------------------------- */
 .loot-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; margin: 0.8rem 0; }
-.loot-option { background: none; border: 2px solid transparent; border-radius: 10px; padding: 3px; cursor: pointer; }
+.loot-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.28rem;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 3px 3px 0.4rem;
+  cursor: pointer;
+  color: inherit;
+}
 .loot-option.chosen { border-color: var(--gold); box-shadow: 0 0 16px rgba(196, 161, 90, 0.5); }
 .loot-option:disabled { opacity: 0.45; cursor: not-allowed; }
+.loot-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08rem;
+  min-height: 2.1rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+}
+.loot-tag.new { color: var(--amber); font-weight: 700; }
+.loot-tag.have { color: var(--parchment-dim); }
+.loot-tag.gain { color: var(--gold); font-weight: 600; }
+.loot-tag.reclaim {
+  color: #7fe4ff;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .warn-block {
   border-left: 3px solid var(--danger);
   background: rgba(181, 74, 60, 0.12);

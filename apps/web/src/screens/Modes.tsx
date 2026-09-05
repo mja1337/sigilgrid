@@ -66,7 +66,10 @@ export function DailyScreen() {
 }
 
 export function WagerScreen() {
+  const { save } = useGame();
   const [ok, setOk] = useState(false);
+  const [seed] = useState(() => String(Date.now() % 100000));
+  const held = save.opponentHoldings['a2-road'] ?? [];
   return (
     <div className="app-shell">
       <div className="topbar">
@@ -74,14 +77,22 @@ export function WagerScreen() {
         <div className="brand">Wager Rites</div>
       </div>
       <p>
-        If you lose, the first card of your active deck is forfeit. Safe stakes remain the default everywhere else.
+        If you lose, the first card of your active deck goes to the Pale Pair.
+        They are very likely to play it in your next rite, giving you a chance to win it back.
+        Safe stakes remain the default everywhere else.
       </p>
+      {held.length > 0 && (
+        <p data-testid="wager-held">
+          The Pale Pair currently hold {held.length} of your {held.length === 1 ? 'card' : 'cards'}:{' '}
+          {held.map((card) => card.displayName).join(', ')}.
+        </p>
+      )}
       <label>
         <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> I understand a card may be lost.
       </label>
       <p>
         {ok ? (
-          <Link className="btn" to="/play?mode=wager&wager=1&seed=88&encounter=a2-road">
+          <Link className="btn" to={`/play?mode=wager&wager=1&seed=${seed}&encounter=a2-road`}>
             Confirm wager
           </Link>
         ) : (

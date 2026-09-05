@@ -31,6 +31,8 @@ export type SaveGame = {
   version: 1;
   contentVersion: string;
   collection: import('@sigilgrid/core').CardInstance[];
+  /** Cards forfeited in wager rites, grouped by the encounter that won them. */
+  opponentHoldings: Record<string, import('@sigilgrid/core').CardInstance[]>;
   decks: DeckList[];
   activeDeckId: string;
   campaign: CampaignSave;
@@ -61,6 +63,7 @@ export function emptySave(collection: SaveGame['collection']): SaveGame {
     version: 1,
     contentVersion: CONTENT_VERSION,
     collection,
+    opponentHoldings: {},
     decks,
     activeDeckId: decks[0]?.id ?? 'beginner',
     campaign: { completed: [], nextId: 't1', finaleRound: 0 },
@@ -92,10 +95,23 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
  * structurally broken import would brick the game on the next reload. Check
  * the shape up front rather than trusting `version`.
  */
-export function isSaveGame(raw: unknown): raw is SaveGame {
+type CompatibleSave = Omit<SaveGame, 'opponentHoldings'> & {
+  opponentHoldings?: SaveGame['opponentHoldings'];
+};
+
+export function isSaveGame(raw: unknown): raw is CompatibleSave {
   if (!isObj(raw) || raw.version !== 1) return false;
   if (typeof raw.contentVersion !== 'string') return false;
   if (!Array.isArray(raw.collection) || !raw.collection.every(isObj)) return false;
+  if (
+    raw.opponentHoldings !== undefined &&
+    (!isObj(raw.opponentHoldings) ||
+      !Object.values(raw.opponentHoldings).every(
+        (cards) => Array.isArray(cards) && cards.every(isObj),
+      ))
+  ) {
+    return false;
+  }
   if (!Array.isArray(raw.decks)) return false;
   if (!raw.decks.every((d) => isObj(d) && typeof d.id === 'string' && Array.isArray(d.instanceIds))) {
     return false;
@@ -114,7 +130,7 @@ function migrate(raw: unknown): SaveGame {
   if (!isSaveGame(raw)) {
     throw new Error('That file is not a Sigil Grid save.');
   }
-  return raw;
+  return { ...raw, opponentHoldings: raw.opponentHoldings ?? {} };
 }
 
 /** Re-point cards at current template data, leaving earned progress alone. */
@@ -151,7 +167,16 @@ function syncCollection(cards: CardInstance[]): CardInstance[] {
  */
 export function reconcileSave(loaded: SaveGame): SaveGame {
   if (loaded.contentVersion === CONTENT_VERSION) {
-    return { ...loaded, collection: syncCollection(loaded.collection) };
+    return {
+      ...loaded,
+      collection: syncCollection(loaded.collection),
+      opponentHoldings: Object.fromEntries(
+        Object.entries(loaded.opponentHoldings ?? {}).map(([id, cards]) => [
+          id,
+          syncCollection(cards),
+        ]),
+      ),
+    };
   }
   return {
     ...emptySave(createStarterCollection()),
@@ -163,6 +188,12 @@ export function reconcileSave(loaded: SaveGame): SaveGame {
     seals: loaded.seals,
     loreIds: loaded.loreIds,
     wagerUnlocked: loaded.wagerUnlocked,
+    opponentHoldings: Object.fromEntries(
+      Object.entries(loaded.opponentHoldings ?? {}).map(([id, cards]) => [
+        id,
+        syncCollection(cards),
+      ]),
+    ),
   };
 }
 

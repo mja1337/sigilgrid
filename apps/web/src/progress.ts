@@ -14,6 +14,7 @@ import {
 import type { SaveGame } from './save.ts';
 
 export const CAP = COLLECTION_CAP;
+export const HELD_CARD_REPLAY_CHANCE = 0.9;
 
 export function freeSlots(save: SaveGame): number {
   return Math.max(0, CAP - save.collection.length);
@@ -45,8 +46,71 @@ export function lootInstanceId(encounterId: string, prize: CardInstance): string
   return `taken-${encounterId}-${prize.templateId}`;
 }
 
+export function heldOpponentInstanceId(encounterId: string, card: CardInstance): string {
+  return `o-held-${encounterId}-${card.instanceId}`;
+}
+
+export function isReclaimableLoot(
+  save: SaveGame,
+  prize: CardInstance,
+  encounterId: string,
+): boolean {
+  return (save.opponentHoldings[encounterId] ?? []).some(
+    (card) => heldOpponentInstanceId(encounterId, card) === prize.instanceId,
+  );
+}
+
+function replayRoll(seed: number, instanceId: string): number {
+  let hash = seed | 0;
+  for (let i = 0; i < instanceId.length; i += 1) {
+    hash = Math.imul(hash ^ instanceId.charCodeAt(i), 16777619);
+  }
+  return (hash >>> 0) / 4294967296;
+}
+
+/**
+ * Cards this opponent won from the player and will put back into circulation.
+ * The newest loss is guaranteed to appear; every older loss has a 90% chance.
+ */
+export function heldCardsForMatch(
+  save: SaveGame,
+  encounterId: string,
+  seed: number,
+): CardInstance[] {
+  const held = save.opponentHoldings[encounterId] ?? [];
+  return [...held]
+    .reverse()
+    .filter((card, index) => index === 0 || replayRoll(seed, card.instanceId) < HELD_CARD_REPLAY_CHANCE)
+    .slice(0, 5)
+    .map((card) => ({
+      ...card,
+      instanceId: heldOpponentInstanceId(encounterId, card),
+      provenance: 'event',
+    }));
+}
+
 /** Take a chosen spoil. Declining is a legitimate answer, so this is opt-in. */
 export function claimLoot(save: SaveGame, prize: CardInstance, encounterId: string): SaveGame {
+  const held = save.opponentHoldings[encounterId] ?? [];
+  const original = held.find(
+    (card) => heldOpponentInstanceId(encounterId, card) === prize.instanceId,
+  );
+  if (original) {
+    if (save.collection.length >= CAP) return save;
+    const opponentHoldings = {
+      ...save.opponentHoldings,
+      [encounterId]: held.filter((card) => card.instanceId !== original.instanceId),
+    };
+    if (opponentHoldings[encounterId]?.length === 0) delete opponentHoldings[encounterId];
+    return {
+      ...save,
+      opponentHoldings,
+      collection: save.collection.some((card) => card.instanceId === original.instanceId)
+        ? save.collection
+        : [...save.collection, original],
+    };
+  }
+
   const instanceId = lootInstanceId(encounterId, prize);
   if (save.collection.some((c) => c.instanceId === instanceId)) return save;
   if (save.collection.length >= CAP) return save;
@@ -167,9 +231,17 @@ export function applyMatchToSave(
   if (opts.wager && opts.result.winner === 'opponent') {
     const deck = next.decks.find((d) => d.id === next.activeDeckId);
     const lost = deck?.instanceIds[0];
-    if (lost) {
+    const lostCard = lost ? next.collection.find((card) => card.instanceId === lost) : undefined;
+    if (lost && lostCard && opts.encounter) {
       next.collection = next.collection.filter((c) => c.instanceId !== lost);
       next.decks = next.decks.map((d) => ({ ...d, instanceIds: d.instanceIds.filter((id) => id !== lost) }));
+      const held = next.opponentHoldings[opts.encounter.id] ?? [];
+      next.opponentHoldings = {
+        ...next.opponentHoldings,
+        [opts.encounter.id]: held.some((card) => card.instanceId === lostCard.instanceId)
+          ? held
+          : [...held, lostCard],
+      };
     }
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrowMask, collectorScore, collectorTitle, COLLECTOR_MAX, discardImpact } from '../collector.ts';
+import { arrowMask, claimImpact, collectorScore, collectorTitle, COLLECTOR_MAX, discardImpact } from '../collector.ts';
 import { makeCard } from '../factory.ts';
 import { addHidden, hiddenOf, HIDDEN_PER_WIN, nearestUpgrade, remainingToPip } from '../mastery.ts';
 import type { BattleClass, Direction } from '../types.ts';
@@ -141,5 +141,51 @@ describe('discardImpact', () => {
     const a = card('a', 'goblin', ['N']);
     expect(discardImpact(a, [a]).points).toBeGreaterThanOrEqual(0);
     expect(discardImpact(a, []).points).toBe(0);
+  });
+});
+
+describe('claimImpact', () => {
+  const card = (
+    instanceId: string,
+    templateId: string,
+    arrows: Direction[],
+    battleClass: BattleClass = 'P',
+  ) => makeCard({ instanceId, templateId, displayName: templateId, arrows, battleClass });
+
+  it('marks a new type and new pattern', () => {
+    const held = card('a', 'goblin', ['N']);
+    const prize = card('p', 'fang', ['E']);
+    const impact = claimImpact(prize, [held]);
+    expect(impact.newType).toBe(true);
+    expect(impact.newArrows).toBe(true);
+    expect(impact.points).toBe(15);
+  });
+
+  it('says you already have the card when only the pattern is new', () => {
+    const held = card('a', 'goblin', ['N']);
+    const prize = card('p', 'goblin', ['E']);
+    const impact = claimImpact(prize, [held]);
+    expect(impact.newType).toBe(false);
+    expect(impact.newArrows).toBe(true);
+    expect(impact.points).toBe(5);
+  });
+
+  it('says you already have the pattern when only the type is new', () => {
+    const held = card('a', 'goblin', ['N']);
+    const prize = card('p', 'fang', ['N']);
+    const impact = claimImpact(prize, [held]);
+    expect(impact.newType).toBe(true);
+    expect(impact.newArrows).toBe(false);
+    expect(impact.points).toBe(10);
+  });
+
+  it('reports a class upgrade on a duplicate type', () => {
+    const held = card('a', 'goblin', ['N'], 'P');
+    const prize = card('p', 'goblin', ['N'], 'A');
+    const impact = claimImpact(prize, [held]);
+    expect(impact.newType).toBe(false);
+    expect(impact.newArrows).toBe(false);
+    expect(impact.classGain).toBe(2);
+    expect(impact.points).toBe(2);
   });
 });

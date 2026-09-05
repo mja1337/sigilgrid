@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from '@sigilgrid/core';
 import {
+  COLLECTION_CAP,
   ENCOUNTERS,
   REPEAT_WIN_SEALS,
   createStarterCollection,
   instantiateId,
 } from '@sigilgrid/content';
-import { applyMatchToSave, claimLoot, grantStoryRewards, lootCandidates } from './progress.ts';
+import {
+  applyMatchToSave,
+  claimLoot,
+  grantStoryRewards,
+  heldCardsForMatch,
+  isReclaimableLoot,
+  lootCandidates,
+} from './progress.ts';
 import { emptySave } from './save.ts';
 
 function ended(winner: 'player' | 'opponent' | 'draw', extra: Parameters<typeof createMatch>[0] extends never ? never : Partial<ReturnType<typeof createMatch>> = {}) {
@@ -119,5 +127,67 @@ describe('applyMatchToSave', () => {
       wager: false,
     });
     expect(next.collection.some((c) => c.instanceId.startsWith('p-'))).toBe(false);
+  });
+
+  it('gives a forfeited wager card to that opponent and lets the player reclaim it', () => {
+    const save = emptySave(createStarterCollection());
+    const encounter = ENCOUNTERS.find((entry) => entry.id === 'a2-road')!;
+    const lostId = save.decks.find((deck) => deck.id === save.activeDeckId)!.instanceIds[0]!;
+    const lostCard = save.collection.find((card) => card.instanceId === lostId)!;
+
+    const afterLoss = applyMatchToSave(save, {
+      mode: 'wager',
+      encounter,
+      result: ended('opponent'),
+      seed: 88,
+      wager: true,
+    });
+
+    expect(afterLoss.collection.some((card) => card.instanceId === lostId)).toBe(false);
+    expect(afterLoss.decks.every((deck) => !deck.instanceIds.includes(lostId))).toBe(true);
+    expect(afterLoss.opponentHoldings[encounter.id]?.[0]?.instanceId).toBe(lostCard.instanceId);
+    expect(afterLoss.opponentHoldings[encounter.id]?.[0]?.masteryXp).toBe(9);
+
+    const returning = heldCardsForMatch(afterLoss, encounter.id, 123);
+    expect(returning).toHaveLength(1);
+    expect(returning[0]?.templateId).toBe(lostCard.templateId);
+    expect(returning[0]?.instanceId).toMatch(/^o-held-a2-road-/);
+    expect(isReclaimableLoot(afterLoss, returning[0]!, encounter.id)).toBe(true);
+
+    const reclaimed = claimLoot(afterLoss, returning[0]!, encounter.id);
+    expect(reclaimed.collection.some((card) => card.instanceId === lostId)).toBe(true);
+    expect(reclaimed.opponentHoldings[encounter.id]).toBeUndefined();
+  });
+
+  it('always fields the most recently forfeited card on the next wager', () => {
+    const save = emptySave(createStarterCollection());
+    const held = save.collection.slice(0, 2);
+    const wagerSave = {
+      ...save,
+      opponentHoldings: { 'a2-road': held },
+    };
+
+    for (const seed of [1, 2, 88, 99999]) {
+      const returning = heldCardsForMatch(wagerSave, 'a2-road', seed);
+      expect(returning.some((card) => card.templateId === held[1]!.templateId)).toBe(true);
+    }
+  });
+
+  it('keeps a reclaimable card with the opponent when the album is full', () => {
+    const save = emptySave(createStarterCollection());
+    const original = save.collection[0]!;
+    const filler = Array.from({ length: COLLECTION_CAP }, (_, i) =>
+      instantiateId('fang', i + 100, 'drop', `full-${i}`),
+    );
+    const wagerSave = {
+      ...save,
+      collection: filler,
+      opponentHoldings: { 'a2-road': [original] },
+    };
+    const returning = heldCardsForMatch(wagerSave, 'a2-road', 1)[0]!;
+
+    const refused = claimLoot(wagerSave, returning, 'a2-road');
+    expect(refused.collection).toHaveLength(COLLECTION_CAP);
+    expect(refused.opponentHoldings['a2-road']).toEqual([original]);
   });
 });

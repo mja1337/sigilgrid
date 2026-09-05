@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   applyActions,
+  claimImpact,
   concludeIfOver,
   createMatch,
   legalCells,
@@ -10,6 +11,7 @@ import {
   scoreBoard,
   STAT_LABEL,
   strategyByName,
+  type ClaimImpact,
   type GameAction,
   type MatchEvent,
   type CardInstance,
@@ -19,7 +21,13 @@ import {
 import { COLLECTION_CAP, CONTENT_VERSION, ENCOUNTERS, instantiateId, LORE } from '@sigilgrid/content';
 import { StoredReplay } from '@sigilgrid/protocol';
 import { useGame } from '../GameContext.tsx';
-import { applyMatchToSave, claimLoot, lootCandidates } from '../progress.ts';
+import {
+  applyMatchToSave,
+  claimLoot,
+  heldCardsForMatch,
+  isReclaimableLoot,
+  lootCandidates,
+} from '../progress.ts';
 import { ROLL_SETTLE_MS } from '../components/rollTiming.ts';
 import { BoardView } from '../components/Board.tsx';
 import { CardBack } from '../components/CardBack.tsx';
@@ -74,7 +82,15 @@ export function PlayScreen() {
   }, [encounter, save, seed]);
 
   function startMatch() {
-    const opp = cardsFromTemplates(encounter?.opponentTemplates ?? ['goblin', 'fang', 'skeleton', 'flan', 'bomb'], seed + 99, 'o');
+    const regularOpp = cardsFromTemplates(
+      encounter?.opponentTemplates ?? ['goblin', 'fang', 'skeleton', 'flan', 'bomb'],
+      seed + 99,
+      'o',
+    );
+    const returning = wager && encounter
+      ? heldCardsForMatch(save, encounter.id, seed)
+      : [];
+    const opp = [...returning, ...regularOpp].slice(0, 5);
     const p = encounter?.playerTemplates ? cardsFromTemplates(encounter.playerTemplates, seed, 'p') : playerCards;
     const match = createMatch({
       seed,
@@ -346,6 +362,13 @@ export function PlayScreen() {
   const score = state ? scoreBoard(state) : { player: 0, opponent: 0 };
   const hand = state ? state.hands.player.map((id) => state.cards[id]!) : [];
   const ghost = encounter?.id === 't1' && state ? suggestUnopposed(state, selected) : undefined;
+  const wagerCard = wager
+    ? save.collection.find(
+        (card) =>
+          card.instanceId ===
+          save.decks.find((deck) => deck.id === save.activeDeckId)?.instanceIds[0],
+      )
+    : undefined;
 
   function finishToSave(
     resultState: MatchState,
@@ -444,7 +467,17 @@ export function PlayScreen() {
 
   if (dialogue === 'loot' && encounter) {
     const spoils = lootCandidates(state);
-    const full = save.collection.length >= COLLECTION_CAP;
+    // First-win packs land in the same save write as the spoil, so ownership
+    // has to be judged against the album after those rewards, not before.
+    const album = applyMatchToSave(save, {
+      mode,
+      encounter,
+      result: state,
+      seed,
+      wager,
+    }).collection;
+    const full = album.length >= COLLECTION_CAP;
+    const picked = spoils.find((c) => c.instanceId === lootTaken);
     return (
       <div className="modal">
         <div className="modal-card loot-picker" data-testid="dialogue-loot">
@@ -460,22 +493,38 @@ export function PlayScreen() {
             </p>
           )}
           <div className="loot-row">
-            {spoils.map((c) => (
-              <button
-                key={c.instanceId}
-                type="button"
-                className={`loot-option ${lootTaken === c.instanceId ? 'chosen' : ''}`}
-                data-testid={`loot-${c.templateId}`}
-                disabled={full}
-                onClick={() => setLootTaken(lootTaken === c.instanceId ? null : c.instanceId)}
-              >
-                <CardFace card={c} />
-              </button>
-            ))}
+            {spoils.map((c) => {
+              const insight = claimImpact(c, album);
+              const reclaimable = isReclaimableLoot(save, c, encounter.id);
+              return (
+                <button
+                  key={c.instanceId}
+                  type="button"
+                  className={`loot-option ${lootTaken === c.instanceId ? 'chosen' : ''}`}
+                  data-testid={`loot-${c.templateId}`}
+                  disabled={full}
+                  onClick={() => setLootTaken(lootTaken === c.instanceId ? null : c.instanceId)}
+                >
+                  <CardFace card={c} />
+                  <span className="loot-tags" data-testid={`loot-owned-${c.instanceId}`}>
+                    {reclaimable && <span className="loot-tag reclaim">Yours to reclaim</span>}
+                    <span className={`loot-tag ${insight.newType ? 'new' : 'have'}`}>
+                      {insight.newType ? 'New card' : 'Have this card'}
+                    </span>
+                    <span className={`loot-tag ${insight.newArrows ? 'new' : 'have'}`}>
+                      {insight.newArrows ? 'New pattern' : 'Have this pattern'}
+                    </span>
+                    {insight.classGain > 0 && (
+                      <span className="loot-tag gain">Better class</span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <p className="muted" data-testid="loot-choice">
-            {lootTaken
-              ? `Taking ${spoils.find((c) => c.instanceId === lootTaken)?.displayName}`
+            {picked
+              ? `Taking ${picked.displayName} — ${lootSummary(claimImpact(picked, album))}`
               : 'Nothing selected'}
           </p>
           <button
@@ -484,7 +533,7 @@ export function PlayScreen() {
             onClick={() => {
               const prize = spoils.find((c) => c.instanceId === lootTaken) ?? null;
               finishToSave(state, undefined, prize);
-              nav('/story');
+              nav(mode === 'wager' ? '/wager' : '/story');
             }}
           >
             {lootTaken ? 'Take it and continue' : 'Take nothing'}
@@ -654,14 +703,28 @@ export function PlayScreen() {
             <p>
               {score.player} to {score.opponent}
             </p>
+            {wager && state.winner === 'opponent' && wagerCard && (
+              <p className="warn-block" data-testid="wager-forfeit">
+                {encounter?.opponentName ?? 'Your opponent'} takes {wagerCard.displayName}.
+                They are likely to play it in your next wager, so you can win it back.
+              </p>
+            )}
             <button
               className="btn"
               data-testid="match-continue"
               onClick={() => {
                 if (mode === 'story' && encounter && state.winner === 'player') setDialogue('post');
+                else if (
+                  mode === 'wager' &&
+                  encounter &&
+                  state.winner === 'player' &&
+                  lootCandidates(state).length > 0
+                ) {
+                  setDialogue('loot');
+                }
                 else {
                   finishToSave(state);
-                  nav(mode === 'story' ? '/story' : '/');
+                  nav(mode === 'story' ? '/story' : mode === 'wager' ? '/wager' : '/');
                 }
               }}
             >
@@ -703,6 +766,17 @@ export function PlayScreen() {
       )}
     </div>
   );
+}
+
+function lootSummary(insight: ClaimImpact): string {
+  const bits = [
+    insight.newType ? 'new card' : 'have this card',
+    insight.newArrows ? 'new pattern' : 'have this pattern',
+  ];
+  if (insight.classGain > 0) bits.push('better class');
+  if (insight.points > 0) bits.push(`+${insight.points}`);
+  else bits.push('no collector gain');
+  return bits.join(' · ');
 }
 
 function suggestUnopposed(state: MatchState, selected: string | null): number | undefined {

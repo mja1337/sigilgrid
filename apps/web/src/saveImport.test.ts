@@ -28,6 +28,14 @@ describe('save import validation', () => {
     expect(round.version).toBe(1);
   });
 
+  it('adds empty opponent holdings when loading an older v1 save', () => {
+    const repo = createLocalSaveRepository();
+    const { opponentHoldings: _oldField, ...oldSave } = fresh();
+    localStorage.setItem('sigilgrid.save.v1', JSON.stringify(oldSave));
+
+    expect(repo.load()?.opponentHoldings).toEqual({});
+  });
+
   it('rejects malformed JSON without touching the stored save', () => {
     const repo = createLocalSaveRepository();
     const before = fresh();
@@ -43,6 +51,7 @@ describe('save import validation', () => {
     ['collection not an array', { ...fresh(), collection: 'nope' }],
     ['decks missing instanceIds', { ...fresh(), decks: [{ id: 'a', name: 'a' }] }],
     ['campaign not an object', { ...fresh(), campaign: null }],
+    ['opponent holdings not an object', { ...fresh(), opponentHoldings: [] }],
     ['seals not a number', { ...fresh(), seals: 'lots' }],
     ['wrong version', { ...fresh(), version: 2 }],
   ])('rejects %s and leaves the stored save intact', (_label, bad) => {

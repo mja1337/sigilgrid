@@ -75,6 +75,8 @@ test('winning a story rite offers the opponent cards you turned', async ({ page 
 
   await page.getByTestId('post-continue').click();
   await expect(page.getByTestId('dialogue-loot')).toBeVisible();
+  await expect(page.locator('.loot-option').first()).toContainText(/this card/i);
+  await expect(page.locator('.loot-option').first()).toContainText(/this pattern|New pattern/i);
 
   // Loot is opt-in: nothing is selected until the player picks.
   await expect(page.getByTestId('loot-choice')).toContainText('Nothing selected');

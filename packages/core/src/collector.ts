@@ -179,3 +179,32 @@ export function discardImpact(
     reasons,
   };
 }
+
+export type ClaimImpact = {
+  /** First copy of this template in the album. */
+  newType: boolean;
+  /** Arrow mask not already present on any album card. */
+  newArrows: boolean;
+  /** Extra class points from a better copy (X is 1, A is 2, net of any X lost to A). */
+  classGain: number;
+  points: number;
+};
+
+/**
+ * What taking this spoil would add to collector score.
+ * Same before/after diff as discard, so a duplicate type with a new mask
+ * is +5 even though the type itself is already covered.
+ */
+export function claimImpact(
+  prize: CardInstance,
+  collection: readonly CardInstance[],
+): ClaimImpact {
+  const before = collectorScore(collection);
+  const after = collectorScore([...collection, prize]);
+  return {
+    newType: after.uniqueTypes > before.uniqueTypes,
+    newArrows: after.uniqueArrows > before.uniqueArrows,
+    classGain: (after.classA - before.classA) * 2 + (after.classX - before.classX) * 1,
+    points: Math.max(0, after.points - before.points),
+  };
+}
