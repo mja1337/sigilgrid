@@ -1,5 +1,6 @@
 import { estimateWinChance } from './battle.ts';
 import { cloneState } from './clone.ts';
+import { neighbor } from './directions.ts';
 import { contactsFrom, legalCells, otherPlayer, scoreBoard } from './legal.ts';
 import { applyActions, reduce } from './match.ts';
 import type { AiPersonality, GameAction, MatchState, PlayerId } from './types.ts';
@@ -24,22 +25,31 @@ function hashPick(state: MatchState, n: number): number {
   return Math.abs((state.rngState ^ (state.version * 9973)) >>> 0) % n;
 }
 
-function captureScore(state: MatchState, instanceId: string, cell: number): number {
+function captureScore(
+  state: MatchState,
+  instanceId: string,
+  cell: number,
+  personality?: AiPersonality,
+): number {
   const sim = cloneState(state);
   sim.board[cell] = {
     blocked: false,
     occupant: { instanceId, owner: sim.currentPlayer },
   };
   const contacts = contactsFrom(sim, cell);
-  let score = contacts.filter((c) => !c.contested).length * 12;
+  const aggression = personality?.aggression ?? 0.5;
+  const risk = personality?.riskTolerance ?? 0.5;
+  const card = sim.cards[instanceId]!;
+  let score = contacts.filter((c) => !c.contested).length * (18 * (1 - aggression) + 2);
   for (const c of contacts.filter((x) => x.contested)) {
     const def = sim.cards[sim.board[c.cell]!.occupant!.instanceId]!;
     const atk = sim.cards[instanceId]!;
     const p = estimateWinChance(state.rngState ^ cell, atk, def, 16);
-    score += 8 * p;
-    score += personalityCombo(sim, c.cell) * 4 * p;
+    score += (4 + aggression * 28) * (0.35 + p);
+    score += personalityCombo(sim, c.cell) * (1 + aggression * 5) * p;
   }
-  score -= exposurePenalty(sim, cell, instanceId);
+  score += (personality?.classBias?.[card.battleClass] ?? 0) * 12;
+  score -= exposurePenalty(sim, cell, instanceId, risk);
   return score;
 }
 
@@ -51,15 +61,17 @@ function personalityCombo(state: MatchState, cell: number): number {
   return card.arrows.length;
 }
 
-function exposurePenalty(state: MatchState, cell: number, instanceId: string): number {
+function exposurePenalty(state: MatchState, cell: number, instanceId: string, risk = 0.5): number {
   const card = state.cards[instanceId]!;
   let open = 0;
   for (const dir of card.arrows) {
-    // arrows are threats AND liabilities: count empty neighbors we point at
-    void dir;
-    open += 0.4;
+    const n = neighbor(cell, dir);
+    if (n === null) continue;
+    const target = state.board[n];
+    if (!target || target.blocked || target.occupant) continue;
+    open += 1;
   }
-  return open + cell * 0;
+  return open * (1.5 - risk);
 }
 
 export const easyAi: AiStrategy = {
@@ -113,6 +125,22 @@ function scoreAfterPlace(state: MatchState, action: GameAction, me: PlayerId, pe
   return material(nextState, me, personality);
 }
 
+export function scorePlacement(
+  state: MatchState,
+  instanceId: string,
+  cell: number,
+  personality?: AiPersonality,
+): number {
+  const action: GameAction = { type: 'place', instanceId, cell };
+  const cap = captureScore(state, instanceId, cell, personality);
+  const mat = scoreAfterPlace(state, action, state.currentPlayer, personality);
+  return mat * (1.15 - aggressionWeight(personality)) + cap;
+}
+
+function aggressionWeight(personality?: AiPersonality): number {
+  return (personality?.aggression ?? 0.5) * 0.55;
+}
+
 function material(state: MatchState, me: PlayerId, personality?: AiPersonality): number {
   const s = scoreBoard(state);
   const mine = me === 'player' ? s.player : s.opponent;
@@ -126,7 +154,7 @@ export const standardAi: AiStrategy = {
   name: 'standard',
   choose(state, personality) {
     if (state.phase === 'chooseBattleOrder' && state.pendingBattle) {
-      return bestBattleOrder(state);
+      return bestBattleOrder(state, personality);
     }
     if (state.phase === 'masteryChoice' && state.pendingMastery[0]) {
       return {
@@ -144,9 +172,9 @@ export const standardAi: AiStrategy = {
     let bestScore = -Infinity;
     for (const m of moves) {
       const action: GameAction = { type: 'place', instanceId: m.instanceId, cell: m.cell };
-      const cap = captureScore(state, m.instanceId, m.cell);
+      const cap = captureScore(state, m.instanceId, m.cell, personality);
       const mat = scoreAfterPlace(state, action, me, personality);
-      const total = mat + cap;
+      const total = mat * (1.15 - aggressionWeight(personality)) + cap;
       if (total > bestScore) {
         bestScore = total;
         best = action;
@@ -156,7 +184,7 @@ export const standardAi: AiStrategy = {
   },
 };
 
-function bestBattleOrder(state: MatchState): GameAction {
+function bestBattleOrder(state: MatchState, personality?: AiPersonality): GameAction {
   const pending = state.pendingBattle!;
   const perms = permute(pending.contestedCells).slice(0, 24);
   const me = state.currentPlayer;
@@ -165,7 +193,7 @@ function bestBattleOrder(state: MatchState): GameAction {
   for (const order of perms) {
     const { nextState, events } = reduce(state, { type: 'chooseBattleOrder', order });
     if (events.some((e) => e.kind === 'illegal')) continue;
-    const s = material(nextState, me);
+    const s = material(nextState, me, personality);
     if (s > bestScore) {
       bestScore = s;
       best = order;
@@ -187,7 +215,7 @@ function permute(arr: number[]): number[][] {
 export const expertAi: AiStrategy = {
   name: 'expert',
   choose(state, personality) {
-    if (state.phase === 'chooseBattleOrder') return bestBattleOrder(state);
+    if (state.phase === 'chooseBattleOrder') return bestBattleOrder(state, personality);
     if (state.phase === 'masteryChoice' && state.pendingMastery[0]) {
       return {
         type: 'chooseMasteryUpgrade',
@@ -209,7 +237,7 @@ export const expertAi: AiStrategy = {
       const { nextState, events } = reduce(state, action);
       if (events.some((e) => e.kind === 'illegal')) continue;
       let s = expectimax(nextState, me, 1, deadline, personality);
-      s += captureScore(state, m.instanceId, m.cell) * 0.25;
+      s += captureScore(state, m.instanceId, m.cell, personality) * 0.25;
       if (s > bestScore) {
         bestScore = s;
         best = action;
@@ -229,7 +257,7 @@ function expectimax(
   if (Date.now() > deadline) return material(state, me, personality);
   if (state.phase === 'ended' || state.phase === 'masteryChoice') return material(state, me, personality);
   if (state.phase === 'chooseBattleOrder') {
-    const { nextState } = reduce(state, bestBattleOrder(state));
+    const { nextState } = reduce(state, bestBattleOrder(state, personality));
     return expectimax(nextState, me, depth, deadline, personality);
   }
   if (depth <= 0) return material(state, me, personality);

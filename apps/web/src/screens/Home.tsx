@@ -3,10 +3,15 @@ import { Link } from 'react-router-dom';
 import { COLLECTOR_MAX, collectorScore, cardPower, MASTERY_CAP } from '@sigilgrid/core';
 import { COLLECTION_CAP } from '@sigilgrid/content';
 import { useGame } from '../GameContext.tsx';
+import { dailyChallenge, todayKey, visibleDailyStreak } from '../daily.ts';
+import { circuitFinished } from '../progress.ts';
 
 export function HomeScreen() {
   const { save } = useGame();
   const rank = collectorScore(save.collection);
+  const today = todayKey();
+  const daily = dailyChallenge(today);
+  const dailyStreak = visibleDailyStreak(save.daily, today);
   const pct = Math.round((rank.points / COLLECTOR_MAX) * 100);
   const masteryPips = save.collection.reduce((n, c) => n + c.masteryLevel, 0);
   const masteryCeiling = save.collection.length * MASTERY_CAP;
@@ -82,7 +87,7 @@ export function HomeScreen() {
         </Link>
         <Link className="mode-card" to="/daily" data-testid="mode-daily">
           <h2>Daily Rift</h2>
-          <p>Local best {save.daily.bestScore ?? '—'}</p>
+          <p>{daily.name} · best {save.daily.date === today ? save.daily.bestScore ?? '—' : '—'} · {dailyStreak}-day streak</p>
         </Link>
         <Link className="mode-card" to="/collection" data-testid="mode-collection">
           <h2>Collection & Workshop</h2>
@@ -93,7 +98,13 @@ export function HomeScreen() {
         {save.wagerUnlocked && (
           <Link className="mode-card" to="/wager" data-testid="mode-wager">
             <h2>Wager Rites</h2>
-            <p>Opt-in stakes against an NPC. Confirmation required.</p>
+            <p>Named NPCs. Opt-in stakes, confirmation required.</p>
+          </Link>
+        )}
+        {circuitFinished(save) && (
+          <Link className="mode-card" to="/challenges" data-testid="mode-challenges">
+            <h2>Challenge Rites</h2>
+            <p>Three expert boards. No loot — seals and cosmetics on first clear.</p>
           </Link>
         )}
       </div>

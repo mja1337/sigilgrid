@@ -37,7 +37,9 @@ async function playToWin(page: Page) {
     const mastery = page.getByTestId('mastery-0');
     if (await mastery.isVisible().catch(() => false)) await mastery.click();
     const resolve = page.getByTestId('resolve-close');
-    if (await resolve.isVisible().catch(() => false)) await resolve.click();
+    if (await resolve.isVisible().catch(() => false)) {
+      await resolve.click({ force: true, timeout: 1_000 }).catch(() => undefined);
+    }
     await page.waitForTimeout(80);
   }
 }
@@ -53,7 +55,9 @@ test('an unopposed capture no longer interrupts with a popup', async ({ page }) 
       const text = (await overlay.textContent()) ?? '';
       if (/unopposed/i.test(text)) sawUnopposedCaption = true;
       const close = page.getByTestId('resolve-close');
-      if (await close.isVisible().catch(() => false)) await close.click();
+      if (await close.isVisible().catch(() => false)) {
+        await close.click({ force: true, timeout: 1_000 }).catch(() => undefined);
+      }
     }
     if (await page.getByTestId('match-over').isVisible().catch(() => false)) break;
     const cards = page.locator('.hand-column .card-face');

@@ -1,20 +1,20 @@
 import type { CardInstance, MatchState } from '@sigilgrid/core';
-import {
-  COLLECTION_CAP,
-  ENCOUNTERS,
-  instantiateId,
-  instantiatePack,
-  instantiateTierPack,
-  packTierById,
-  PACK_SIZE,
-  PRACTICE_WIN_SEALS,
-  REPEAT_WIN_SEALS,
-  type Encounter,
-} from '@sigilgrid/content';
+import { cardPower, powerBand } from '@sigilgrid/core';
+import { COLLECTION_CAP, ENCOUNTERS, PACK_SIZE, PRACTICE_WIN_SEALS, REPEAT_WIN_SEALS, instantiateId, instantiatePack, instantiateTierPack, packTierById, type Encounter } from '@sigilgrid/content';
 import type { SaveGame } from './save.ts';
+import { isPreviousDay, todayKey } from './daily.ts';
 
 export const CAP = COLLECTION_CAP;
 export const HELD_CARD_REPLAY_CHANCE = 0.9;
+export const CIRCUIT_FINALE_ID = 'a4-r3';
+
+export function circuitFinished(save: SaveGame): boolean {
+  return save.campaign.completed.includes(CIRCUIT_FINALE_ID);
+}
+
+export function wagerRivalUnlocked(save: SaveGame, unlockAfter: string): boolean {
+  return save.campaign.completed.includes(unlockAfter);
+}
 
 export function freeSlots(save: SaveGame): number {
   return Math.max(0, CAP - save.collection.length);
@@ -68,16 +68,33 @@ export function deckCardsForMatch(save: SaveGame): CardInstance[] {
 }
 
 /** How much of the active deck is actually playable, for deck readouts before a match. */
-export function activeDeckSummary(save: SaveGame): { name: string; owned: number; borrowed: number } {
+export function activeDeckSummary(save: SaveGame): {
+  name: string;
+  owned: number;
+  borrowed: number;
+  mix: string;
+  power: number;
+  band: string;
+} {
   const deck = save.decks.find((d) => d.id === save.activeDeckId);
   const owned = new Set(
     (deck?.instanceIds ?? []).filter((id) => save.collection.some((c) => c.instanceId === id)),
   ).size;
-  const total = deckCardsForMatch(save).length;
+  const cards = deckCardsForMatch(save);
+  const counts: Record<string, number> = {};
+  for (const card of cards) counts[card.battleClass] = (counts[card.battleClass] ?? 0) + 1;
+  const mix = ['P', 'M', 'X', 'A']
+    .filter((klass) => counts[klass])
+    .map((klass) => `${counts[klass]}${klass}`)
+    .join(' · ');
+  const power = cards.reduce((sum, card) => sum + cardPower(card), 0);
   return {
     name: deck?.name ?? 'Album order',
     owned: Math.min(owned, 5),
-    borrowed: Math.max(0, total - Math.min(owned, 5)),
+    borrowed: Math.max(0, cards.length - Math.min(owned, 5)),
+    mix: mix || 'empty',
+    power,
+    band: powerBand(Math.round(power / Math.max(1, cards.length))),
   };
 }
 
@@ -213,6 +230,16 @@ export function grantStoryRewards(save: SaveGame, encounter: Encounter, seed: nu
   return { ...save, collection, seals, loreIds, unlockedCosmetics };
 }
 
+function grantChallengeRewards(save: SaveGame, encounter: Encounter): SaveGame {
+  let seals = save.seals;
+  let unlockedCosmetics = [...save.unlockedCosmetics];
+  for (const r of encounter.rewards) {
+    if (r.kind === 'seal') seals += r.count;
+    if (r.kind === 'cosmetic') unlockedCosmetics = [...new Set([...unlockedCosmetics, r.id])];
+  }
+  return { ...save, seals, unlockedCosmetics };
+}
+
 export function applyMatchToSave(
   save: SaveGame,
   opts: {
@@ -222,6 +249,7 @@ export function applyMatchToSave(
     seed: number;
     wager: boolean;
     epilogue?: 'seal' | 'use';
+    dailyDate?: string;
   },
 ): SaveGame {
   const won = opts.result.winner === 'player';
@@ -249,16 +277,38 @@ export function applyMatchToSave(
     }
   }
 
+  if (opts.mode === 'challenge' && opts.encounter && won) {
+    const done = next.campaign.challenges ?? [];
+    if (!done.includes(opts.encounter.id)) {
+      next.campaign = { ...next.campaign, challenges: [...done, opts.encounter.id] };
+      next = grantChallengeRewards(next, opts.encounter);
+    } else {
+      next.seals += REPEAT_WIN_SEALS;
+    }
+  }
+
   if (opts.mode === 'practice' && won) {
     next.seals += PRACTICE_WIN_SEALS;
   }
 
   if (opts.mode === 'daily') {
     const sc = scoreDelta(opts.result);
-    const date = new Date().toISOString().slice(0, 10);
+    const date = opts.dailyDate ?? todayKey();
     const alreadyPacked = next.daily.date === date && Boolean(next.daily.packClaimed);
     const best = next.daily.date === date ? Math.max(next.daily.bestScore ?? -99, sc) : sc;
-    next.daily = { date, bestScore: best, packClaimed: alreadyPacked || won };
+    const firstWinToday = won && next.daily.lastWinDate !== date;
+    const streak = firstWinToday
+      ? isPreviousDay(next.daily.lastWinDate, date)
+        ? next.daily.streak + 1
+        : 1
+      : next.daily.streak;
+    next.daily = {
+      date,
+      bestScore: best,
+      packClaimed: alreadyPacked || won,
+      streak,
+      lastWinDate: firstWinToday ? date : next.daily.lastWinDate,
+    };
     if (won && !alreadyPacked) {
       next.collection = addWithinCap(
         next.collection,

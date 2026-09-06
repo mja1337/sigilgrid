@@ -15,15 +15,17 @@ import {
   type GameAction,
   type MatchEvent,
   type CardInstance,
+  type MatchConfig,
   type MatchState,
   type PlacementPreview,
 } from '@sigilgrid/core';
-import { COLLECTION_CAP, CONTENT_VERSION, ENCOUNTERS, instantiateId, LORE } from '@sigilgrid/content';
+import { COLLECTION_CAP, CONTENT_VERSION, encounterById, instantiateId, LORE } from '@sigilgrid/content';
 import { StoredReplay } from '@sigilgrid/protocol';
 import { useGame } from '../GameContext.tsx';
 import {
   activeDeckSummary,
   applyMatchToSave,
+  circuitFinished,
   claimLoot,
   deckCardsForMatch,
   heldCardsForMatch,
@@ -35,6 +37,7 @@ import { BoardView } from '../components/Board.tsx';
 import { CardBack } from '../components/CardBack.tsx';
 import { CardFace, InspectPanel } from '../components/CardFace.tsx';
 import { CombatOverlay } from '../components/CombatOverlay.tsx';
+import { dailyChallenge, todayKey } from '../daily.ts';
 
 /** Matches the card-capture flip in theme.css, with a beat of slack. */
 const CAPTURE_SETTLE_MS = 600;
@@ -52,9 +55,10 @@ export function PlayScreen() {
   const encounterId = encounterParam ?? (mode === 'story' ? 't1' : '');
   const seed = Number(params.get('seed') ?? String(Date.now() % 100000));
   const wager = params.get('wager') === '1';
-  const encounter = encounterId ? ENCOUNTERS.find((e) => e.id === encounterId) : undefined;
-  const storyBoard = Boolean(mode === 'story' && encounter);
-  const replayId = params.get('replay');
+  const encounter = encounterId ? encounterById(encounterId) : undefined;
+  const scriptedBoard = Boolean(encounter && (mode === 'story' || mode === 'wager' || mode === 'challenge'));
+  const dailyDate = params.get('date') ?? todayKey();
+  const daily = mode === 'daily' ? dailyChallenge(dailyDate) : null;
 
   const [dialogue, setDialogue] = useState<'pre' | 'play' | 'post' | 'loot' | 'epilogue'>('pre');
   const [lootTaken, setLootTaken] = useState<string | null>(null);
@@ -68,6 +72,7 @@ export function PlayScreen() {
   const [busy, setBusy] = useState(false);
   const [showKickoff, setShowKickoff] = useState(true);
   const [boardSettled, setBoardSettled] = useState(false);
+  const [tutorialSkipped, setTutorialSkipped] = useState(false);
   const [combatEvents, setCombatEvents] = useState<MatchEvent[] | null>(null);
   const [fx, setFx] = useState<{ placed?: number; captured?: number[] }>({});
   const [hoverCell, setHoverCell] = useState<number | null>(null);
@@ -76,6 +81,7 @@ export function PlayScreen() {
   const placingRef = useRef(false);
   const aiGen = useRef(0);
   const combatDone = useRef<(() => void) | null>(null);
+  const initialConfig = useRef<MatchConfig | null>(null);
 
   const playerCards = useMemo(() => {
     if (encounter?.playerTemplates) return cardsFromTemplates(encounter.playerTemplates, seed, 'p');
@@ -85,7 +91,7 @@ export function PlayScreen() {
 
   function startMatch() {
     const regularOpp = cardsFromTemplates(
-      encounter?.opponentTemplates ?? ['goblin', 'fang', 'skeleton', 'flan', 'bomb'],
+      encounter?.opponentTemplates ?? daily?.opponentTemplates ?? ['goblin', 'fang', 'skeleton', 'flan', 'bomb'],
       seed + 99,
       'o',
     );
@@ -94,19 +100,22 @@ export function PlayScreen() {
       : [];
     const opp = [...returning, ...regularOpp].slice(0, 5);
     const p = encounter?.playerTemplates ? cardsFromTemplates(encounter.playerTemplates, seed, 'p') : playerCards;
-    const match = createMatch({
+    const config: MatchConfig = {
       seed,
       playerCards: p.slice(0, 5),
       opponentCards: opp.slice(0, 5),
-      blockedCells: storyBoard ? encounter!.blockedCells : undefined,
-      firstPlayer: storyBoard ? encounter!.firstPlayer : undefined,
+      blockedCells: scriptedBoard ? encounter!.blockedCells : daily?.blockedCells,
+      firstPlayer: scriptedBoard ? encounter!.firstPlayer : daily?.firstPlayer,
       stakes: wager ? 'wager' : 'safe',
       contentVersion: CONTENT_VERSION,
       matchId: `local-${seed}-${encounterId || mode}`,
-    });
+    };
+    initialConfig.current = config;
+    const match = createMatch(config);
     setState(match);
     setActions([]);
     setShowKickoff(true);
+    setTutorialSkipped(false);
     setDialogue('play');
   }
 
@@ -167,7 +176,7 @@ export function PlayScreen() {
     if (from.currentPlayer !== 'opponent') return;
     if (from.phase === 'ended' || from.phase === 'masteryChoice') return;
     setBusy(true);
-    const ai = strategyByName(encounter?.ai ?? (params.get('ai') as 'easy' | 'standard' | 'expert') ?? 'standard');
+    const ai = strategyByName(encounter?.ai ?? daily?.ai ?? (params.get('ai') as 'easy' | 'standard' | 'expert') ?? 'standard');
     const d = timing();
     let cur = from;
     let acts = [...prev];
@@ -347,15 +356,16 @@ export function PlayScreen() {
     setOrderPick([]);
     setCombatEvents(null);
     setShowKickoff(true);
+    initialConfig.current = null;
     aiGen.current += 1;
-    setDialogue(mode === 'story' ? 'pre' : 'play');
-  }, [matchKey, mode]);
+    setDialogue(scriptedBoard ? 'pre' : 'play');
+  }, [matchKey, mode, scriptedBoard]);
 
   useEffect(() => {
-    if (mode === 'story') return;
+    if (scriptedBoard) return;
     if (dialogue !== 'play' || state) return;
     startMatch();
-  }, [matchKey, dialogue, state, mode]);
+  }, [matchKey, dialogue, state, scriptedBoard]);
 
   useEffect(() => {
     if (!state || busy || showKickoff || combatEvents) return;
@@ -386,7 +396,14 @@ export function PlayScreen() {
 
   const score = state ? scoreBoard(state) : { player: 0, opponent: 0 };
   const hand = state ? state.hands.player.map((id) => state.cards[id]!) : [];
-  const ghost = encounter?.id === 't1' && state ? suggestUnopposed(state, selected) : undefined;
+  const playerPlacements = state
+    ? state.eventLog.filter((event) => event.kind === 'place' && event.player === 'player').length
+    : 0;
+  const tutorialStep = playerPlacements > 0 ? 2 : selected ? 1 : 0;
+  const tutorialHint = tutorialSkipped ? undefined : encounter?.tutorial?.[tutorialStep];
+  const ghost = encounter?.id === 't1' && state && tutorialStep === 1
+    ? suggestUnopposed(state, selected)
+    : undefined;
   const wagerCard = wager
     ? save.collection.find(
         (card) =>
@@ -395,24 +412,30 @@ export function PlayScreen() {
       )
     : undefined;
 
+  function afterMatchPath() {
+    if (mode === 'story') return '/story';
+    if (mode === 'wager') return '/wager';
+    if (mode === 'challenge') return '/challenges';
+    if (mode === 'daily') return '/daily';
+    return '/';
+  }
+
   function finishToSave(
     resultState: MatchState,
     epilogue?: 'seal' | 'use',
     loot?: CardInstance | null,
   ) {
-    const replay: StoredReplay = {
-      protocolVersion: 1,
-      config: {
-        seed,
-        playerCards: resultState.playedThisMatch.map((id) => resultState.cards[id]!).filter(Boolean).slice(0, 5),
-        opponentCards: [],
-        blockedCells: resultState.board.flatMap((c, i) => (c.blocked ? [i] : [])),
-        firstPlayer: resultState.firstPlayer,
-        contentVersion: CONTENT_VERSION,
-      },
-      actions,
-      createdAt: new Date().toISOString(),
-    };
+    const replay: StoredReplay | null = initialConfig.current
+      ? {
+          protocolVersion: 1,
+          config: initialConfig.current,
+          actions,
+          createdAt: new Date().toISOString(),
+          mode,
+          label: encounter?.title ?? daily?.name ?? `${mode} match`,
+          result: resultState.winner ?? undefined,
+        }
+      : null;
     patch((s) => {
       let next = applyMatchToSave(s, {
         mode,
@@ -421,13 +444,23 @@ export function PlayScreen() {
         seed,
         wager,
         epilogue,
+        dailyDate: mode === 'daily' ? dailyDate : undefined,
       });
       if (loot && encounter) next = claimLoot(next, loot, encounter.id);
-      return { ...next, replays: [...next.replays, replay].slice(-30) };
+      return replay ? { ...next, replays: [...next.replays, replay].slice(-30) } : next;
     });
   }
 
-  if (mode === 'story' && encounter && dialogue === 'pre') {
+  if (mode === 'challenge' && (!circuitFinished(save) || !encounter)) {
+    return (
+      <div className="app-shell">
+        <p data-testid="challenge-locked">Finish the Ashfall Circuit before these rites open.</p>
+        <Link className="btn" to="/">Home</Link>
+      </div>
+    );
+  }
+
+  if (scriptedBoard && encounter && dialogue === 'pre') {
     return (
       <div className="modal">
         <div className="modal-card" data-testid="dialogue-pre">
@@ -443,7 +476,9 @@ export function PlayScreen() {
             ) : (
               <>
                 Taking in <strong>{deckSummary.name}</strong>
-                {deckSummary.borrowed > 0 && ` · ${deckSummary.borrowed} filled from your album`}.{' '}
+                {deckSummary.borrowed > 0 && ` · ${deckSummary.borrowed} filled from your album`}
+                {' · '}
+                {deckSummary.mix} · {deckSummary.band} ({deckSummary.power}).{' '}
                 <Link to="/collection">Change deck</Link>
               </>
             )}
@@ -484,6 +519,11 @@ export function PlayScreen() {
               className="btn"
               data-testid="post-continue"
               onClick={() => {
+                if (mode === 'challenge') {
+                  finishToSave(state);
+                  nav('/challenges');
+                  return;
+                }
                 if (state.winner === 'player' && lootCandidates(state).length > 0) {
                   setDialogue('loot');
                   return;
@@ -492,7 +532,7 @@ export function PlayScreen() {
                 nav('/story');
               }}
             >
-              Continue circuit
+              {mode === 'challenge' ? 'Return to rites' : 'Continue circuit'}
             </button>
           )}
           {encounter.practiceRematch && <Link className="btn ghost" to={`/play?mode=story&encounter=${encounter.id}&seed=${seed + 1}`}>Practice rematch</Link>}
@@ -569,7 +609,7 @@ export function PlayScreen() {
             onClick={() => {
               const prize = spoils.find((c) => c.instanceId === lootTaken) ?? null;
               finishToSave(state, undefined, prize);
-              nav(mode === 'wager' ? '/wager' : '/story');
+              nav(afterMatchPath());
             }}
           >
             {lootTaken ? 'Take it and continue' : 'Take nothing'}
@@ -600,10 +640,17 @@ export function PlayScreen() {
       <div className="topbar">
         <Link to="/" className="brand">Sigil Grid<small>Ashfall</small></Link>
         <div>
-          {mode} · seed {seed} · {score.player}:{score.opponent}
+          {daily ? `${daily.name} · ` : ''}{mode} · seed {seed} · {score.player}:{score.opponent}
         </div>
       </div>
-      {encounter?.tutorial?.[0] && <p data-testid="tutorial-hint">{encounter.tutorial[0].message}</p>}
+      {tutorialHint && (
+        <aside className="tutorial-coach" data-testid="tutorial-hint" aria-live="polite">
+          <span>{tutorialHint.message}</span>
+          <button className="btn ghost small" type="button" onClick={() => setTutorialSkipped(true)}>
+            Skip guidance
+          </button>
+        </aside>
+      )}
       <div className={`play-layout play-table turn-${state.currentPlayer} ${busy ? 'busy' : ''} ${selected ? 'has-pick' : ''}`}>
         <aside className={`opp-hand ${state.currentPlayer === 'opponent' ? 'active-seat' : ''}`} aria-label="Opponent hand">
           <div className="name-plate">{encounter?.opponentName ?? 'Opponent'}</div>
@@ -749,18 +796,18 @@ export function PlayScreen() {
               className="btn"
               data-testid="match-continue"
               onClick={() => {
-                if (mode === 'story' && encounter && state.winner === 'player') setDialogue('post');
-                else if (
+                if ((mode === 'story' || mode === 'challenge') && encounter && state.winner === 'player') {
+                  setDialogue('post');
+                } else if (
                   mode === 'wager' &&
                   encounter &&
                   state.winner === 'player' &&
                   lootCandidates(state).length > 0
                 ) {
                   setDialogue('loot');
-                }
-                else {
+                } else {
                   finishToSave(state);
-                  nav(mode === 'story' ? '/story' : mode === 'wager' ? '/wager' : '/');
+                  nav(afterMatchPath());
                 }
               }}
             >

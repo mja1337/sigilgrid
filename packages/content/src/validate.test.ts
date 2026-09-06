@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TEMPLATES, templateById } from './templates.ts';
 import { validateTemplates } from './validate.ts';
-import { ENCOUNTERS } from './campaign.ts';
+import { CHALLENGES, ENCOUNTERS, WAGER_RIVALS } from './campaign.ts';
 import { STARTER_DECKS, ownedTemplateIds, pickPack } from './economy.ts';
 import { createStarterCollection } from './instantiate.ts';
 
@@ -44,6 +44,19 @@ describe('content', () => {
       for (const r of e.rewards) {
         if (r.kind === 'card') templateById(r.templateId);
       }
+    }
+  });
+
+  it('keeps challenge rites off the story list and wager rivals pointing at real encounters', () => {
+    expect(CHALLENGES).toHaveLength(3);
+    const storyIds = new Set(ENCOUNTERS.map((e) => e.id));
+    for (const rite of CHALLENGES) {
+      expect(storyIds.has(rite.id)).toBe(false);
+      expect(rite.rewards.some((r) => r.kind === 'pack' || r.kind === 'card')).toBe(false);
+      for (const id of rite.opponentTemplates) templateById(id);
+    }
+    for (const rival of WAGER_RIVALS) {
+      expect(ENCOUNTERS.some((e) => e.id === rival.encounterId)).toBe(true);
     }
   });
 

@@ -5,7 +5,9 @@ import { HomeScreen } from './screens/Home.tsx';
 import { StoryScreen } from './screens/Story.tsx';
 import { CollectionScreen } from './screens/Collection.tsx';
 import { DailyScreen, PracticeScreen, SettingsScreen, WagerScreen } from './screens/Modes.tsx';
+import { ChallengesScreen } from './screens/Challenges.tsx';
 import { PlayScreen } from './screens/PlayScreen.tsx';
+import { ReplayScreen } from './screens/Replay.tsx';
 
 function ContrastSync() {
   const { save } = useGame();
@@ -29,8 +31,10 @@ export function App() {
           <Route path="/practice" element={<PracticeScreen />} />
           <Route path="/daily" element={<DailyScreen />} />
           <Route path="/wager" element={<WagerScreen />} />
+          <Route path="/challenges" element={<ChallengesScreen />} />
           <Route path="/settings" element={<SettingsScreen />} />
           <Route path="/play" element={<PlayScreen />} />
+          <Route path="/replay/:replayId" element={<ReplayScreen />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <footer className="site-footer" style={{ textAlign: 'center', padding: '2rem', color: 'var(--parchment-dim)', fontSize: 12 }}>

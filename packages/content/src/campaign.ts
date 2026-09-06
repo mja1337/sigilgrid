@@ -65,7 +65,13 @@ export const ENCOUNTERS: Encounter[] = [
     personality: easy,
     tutorial: [
       {
-        message: 'Select Goblin, then place it so its arrows face an enemy that does not point back.',
+        message: 'Step 1 of 3 — Select Goblin in your hand. Its bright arrow marks the direction it can claim.',
+      },
+      {
+        message: 'Step 2 of 3 — Place it on the suggested gold space so its arrow points at an undefended enemy.',
+      },
+      {
+        message: 'Step 3 of 3 — Unopposed arrows change a card’s colour immediately. Finish the grid using the same rule.',
       },
     ],
     rewards: [
@@ -98,7 +104,11 @@ export const ENCOUNTERS: Encounter[] = [
     playerTemplates: ['goblin', 'fang', 'skeleton', 'flan', 'zaghnol'],
     ai: 'easy',
     personality: easy,
-    tutorial: [{ message: 'When arrows meet, a battle is born. Watch the Resolve panel after you commit.' }],
+    tutorial: [
+      { message: 'Step 1 of 3 — Pick a card whose arrow will meet an enemy arrow.' },
+      { message: 'Step 2 of 3 — Place it facing that enemy. Two meeting arrows begin a contested battle.' },
+      { message: 'Step 3 of 3 — In Resolve, attack rolls against the relevant defence. Ties keep the defender.' },
+    ],
     rewards: [
       { kind: 'pack', count: 1 },
       { kind: 'lore', id: 'bands' },
@@ -125,7 +135,11 @@ export const ENCOUNTERS: Encounter[] = [
     playerTemplates: ['bomb', 'mimic', 'mandragora', 'nymph', 'cactuar'],
     ai: 'easy',
     personality: easy,
-    tutorial: [{ message: 'Win a contested fight and the loser’s arrows may convert one hop of enemies. No further hops.' }],
+    tutorial: [
+      { message: 'Step 1 of 3 — Look for a contested fight beside a second enemy card.' },
+      { message: 'Step 2 of 3 — Place your card so winning the first fight points into that second card.' },
+      { message: 'Step 3 of 3 — A win converts one extra hop through the loser’s arrows. Combos never chain again.' },
+    ],
     rewards: [
       { kind: 'card', templateId: 'tonberry' },
       { kind: 'seal', count: 1 },
@@ -344,6 +358,91 @@ export const ENCOUNTERS: Encounter[] = [
     post: [{ speaker: 'The Source', text: 'The ashfall listens to stories more than swords. Tell yours carefully.' }],
   },
 ];
+
+export type WagerRival = {
+  encounterId: string;
+  unlockAfter: string;
+  blurb: string;
+};
+
+export const WAGER_RIVALS: WagerRival[] = [
+  {
+    encounterId: 'a2-road',
+    unlockAfter: 'a2-road',
+    blurb: 'They collect in pairs and play whatever they last took from you.',
+  },
+  {
+    encounterId: 'a2-mage',
+    unlockAfter: 'a2-mage',
+    blurb: 'Ilya still stacks hide and horn. A magical deck can open the glass.',
+  },
+  {
+    encounterId: 'a2-lock',
+    unlockAfter: 'a2-lock',
+    blurb: 'Brine will stake a card on the lock now, but the geometry stays brutal.',
+  },
+];
+
+export const CHALLENGES: Encounter[] = [
+  {
+    id: 'c-cross',
+    act: 4,
+    index: 13,
+    title: 'Ash Cross',
+    opponentName: 'The Source',
+    opponentTitle: 'Lantern echo',
+    tactic: 'Four-stone cross, expert pressure',
+    storyBeat: 'A post-circuit board with no spoils — only the geometry.',
+    blockedCells: [5, 6, 9, 10],
+    firstPlayer: 'player',
+    opponentTemplates: ['malboro', 'behemoth', 'iron-man', 'ozma', 'bahamut'],
+    ai: 'expert',
+    personality: hard,
+    rewards: [{ kind: 'seal', count: 1 }],
+    pre: [{ speaker: 'The Source', text: 'No satchel. No spoil. Only the cross, and whether you still hear the instruction.' }],
+    post: [{ speaker: 'The Source', text: 'The grid does not keep trophies. It keeps the shape of the fight.' }],
+  },
+  {
+    id: 'c-fault',
+    act: 4,
+    index: 14,
+    title: 'Broken Compass',
+    opponentName: 'Page Twelve',
+    opponentTitle: 'Lantern echo',
+    tactic: 'Diagonal fault, combo hunger',
+    storyBeat: 'The archive’s living index returns without shelves to hide in.',
+    blockedCells: [0, 5, 10, 15],
+    firstPlayer: 'opponent',
+    opponentTemplates: ['hades', 'shiva', 'ifrit', 'ramuh', 'odin'],
+    ai: 'expert',
+    personality: { aggression: 0.85, classBias: { X: 1 }, riskTolerance: 0.75 },
+    rewards: [{ kind: 'cosmetic', id: 'back-tide' }],
+    pre: [{ speaker: 'Page Twelve', text: 'The shelves are gone. I will still listen for a chain.' }],
+    post: [{ speaker: 'Page Twelve', text: 'Indexed. Not owned.' }],
+  },
+  {
+    id: 'c-narrow',
+    act: 4,
+    index: 15,
+    title: 'Six Closures',
+    opponentName: 'Keeper Soth',
+    opponentTitle: 'Lantern echo',
+    tactic: 'Archive geometry with no practice reset',
+    storyBeat: 'Soth’s six-block board, played for mastery rather than loot.',
+    blockedCells: [1, 2, 4, 7, 8, 11],
+    firstPlayer: 'opponent',
+    opponentTemplates: ['alexander', 'madeen', 'fenrir', 'ark', 'leviathan'],
+    ai: 'expert',
+    personality: hard,
+    rewards: [{ kind: 'seal', count: 2 }],
+    pre: [{ speaker: 'Soth', text: 'The gears already forgave you once. This time they only count.' }],
+    post: [{ speaker: 'Soth', text: 'The record is older than the prize. Keep the record.' }],
+  },
+];
+
+export function encounterById(id: string): Encounter | undefined {
+  return ENCOUNTERS.find((e) => e.id === id) ?? CHALLENGES.find((e) => e.id === id);
+}
 
 export const LORE: Record<string, { title: string; body: string }> = {
   'ember-market': {

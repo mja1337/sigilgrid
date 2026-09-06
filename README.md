@@ -54,6 +54,22 @@ Imports are shape-checked before anything is written, so a corrupt file is
 refused rather than persisted, and an older save is reconciled against the
 current content version on the way in.
 
+## Returning play
+
+Daily Rift rotates a deterministic named challenge for each UTC date, including
+fixed geometry, first-player rules and AI strength. The first win awards a pack
+and extends the daily streak; the date and seed can be shared with another
+player.
+
+The latest 30 completed matches are available in Settings under Replays. New
+replays preserve both starting hands and can be watched, paused, scrubbed and
+stepped one action at a time. Older replay records created before starting
+hands were stored remain listed but cannot be reconstructed.
+
+The production build is installable as a standalone web app. Its service worker
+caches the app shell and assets used during an online visit so the game can be
+reopened offline; saves remain local to the browser.
+
 ## Stack
 
 TypeScript monorepo:

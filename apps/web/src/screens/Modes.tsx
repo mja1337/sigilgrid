@@ -1,7 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { COSMETICS } from '@sigilgrid/content';
+import { COSMETICS, WAGER_RIVALS, encounterById } from '@sigilgrid/content';
 import { useGame } from '../GameContext.tsx';
+import { dailyChallenge, todayKey, visibleDailyStreak } from '../daily.ts';
+import { DeckReadout } from '../components/DeckReadout.tsx';
+import { wagerRivalUnlocked } from '../progress.ts';
 
 export function PracticeScreen() {
   const { save, patch } = useGame();
@@ -15,6 +18,7 @@ export function PracticeScreen() {
         <div className="brand">Practice Table</div>
       </div>
       <p>No stakes. Each seed coins a new first player and a new pattern of closed spaces (0–6 cells).</p>
+      <DeckReadout testId="practice-deck-banner" />
       <label>
         Seed{' '}
         <input value={seed} onChange={(e) => setSeed(e.target.value)} data-testid="seed-input" />
@@ -51,25 +55,59 @@ export function PracticeScreen() {
 
 export function DailyScreen() {
   const { save } = useGame();
-  const date = new Date().toISOString().slice(0, 10);
-  const seed = Number(date.replaceAll('-', ''));
+  const date = todayKey();
+  const challenge = dailyChallenge(date);
+  const streak = visibleDailyStreak(save.daily, date);
+  const [shareMsg, setShareMsg] = useState('');
+
+  async function shareChallenge() {
+    const text = `Sigil Grid Daily Rift · ${challenge.date} · ${challenge.name} · seed ${challenge.seed}`;
+    try {
+      if (navigator.share) await navigator.share({ title: 'Sigil Grid Daily Rift', text });
+      else {
+        await navigator.clipboard.writeText(text);
+        setShareMsg('Challenge copied.');
+      }
+    } catch {
+      setShareMsg('Sharing cancelled.');
+    }
+  }
+
   return (
     <div className="app-shell">
       <div className="topbar">
         <Link to="/">Home</Link>
         <div className="brand">Daily Rift</div>
       </div>
-      <p>Date {date}. Local best score {save.daily.date === date ? save.daily.bestScore : '—'}</p>
-      <Link className="btn" to={`/play?mode=daily&seed=${seed}`}>Enter rift</Link>
+      <section className="daily-card" data-testid="daily-challenge">
+        <p className="muted">{date} · seed {challenge.seed}</p>
+        <h2>{challenge.name}</h2>
+        <p>{challenge.description}</p>
+        <dl className="daily-stats">
+          <div><dt>Opponent</dt><dd>{challenge.ai}</dd></div>
+          <div><dt>Closed spaces</dt><dd>{challenge.blockedCells.length}</dd></div>
+          <div><dt>Best today</dt><dd>{save.daily.date === date ? save.daily.bestScore ?? '—' : '—'}</dd></div>
+          <div><dt>Streak</dt><dd>{streak} {streak === 1 ? 'day' : 'days'}</dd></div>
+        </dl>
+        <p className="muted">First win today awards one sealed pack.</p>
+        <div className="daily-actions">
+          <Link className="btn" to={`/play?mode=daily&date=${date}&seed=${challenge.seed}`}>
+            Enter rift
+          </Link>
+          <button className="btn ghost" type="button" onClick={() => void shareChallenge()}>
+            Share challenge
+          </button>
+        </div>
+        {shareMsg && <p role="status">{shareMsg}</p>}
+      </section>
     </div>
   );
 }
 
 export function WagerScreen() {
   const { save } = useGame();
-  const [ok, setOk] = useState(false);
+  const [ok, setOk] = useState<Record<string, boolean>>({});
   const [seed] = useState(() => String(Date.now() % 100000));
-  const held = save.opponentHoldings['a2-road'] ?? [];
   return (
     <div className="app-shell">
       <div className="topbar">
@@ -77,30 +115,63 @@ export function WagerScreen() {
         <div className="brand">Wager Rites</div>
       </div>
       <p>
-        If you lose, the first card of your active deck goes to the Pale Pair.
-        They are very likely to play it in your next rite, giving you a chance to win it back.
-        Safe stakes remain the default everywhere else.
+        Named rivals keep whatever they win from you and are very likely to play it next time,
+        giving you a chance to reclaim it. Safe stakes remain the default everywhere else.
       </p>
-      {held.length > 0 && (
-        <p data-testid="wager-held">
-          The Pale Pair currently hold {held.length} of your {held.length === 1 ? 'card' : 'cards'}:{' '}
-          {held.map((card) => card.displayName).join(', ')}.
-        </p>
-      )}
-      <label>
-        <input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> I understand a card may be lost.
-      </label>
-      <p>
-        {ok ? (
-          <Link className="btn" to={`/play?mode=wager&wager=1&seed=${seed}&encounter=a2-road`}>
-            Confirm wager
-          </Link>
-        ) : (
-          <button className="btn" disabled>
-            Confirm wager
-          </button>
-        )}
-      </p>
+      <DeckReadout testId="wager-deck-banner" />
+      {WAGER_RIVALS.map((rival) => {
+        const encounter = encounterById(rival.encounterId);
+        if (!encounter) return null;
+        const unlocked = wagerRivalUnlocked(save, rival.unlockAfter);
+        const held = save.opponentHoldings[rival.encounterId] ?? [];
+        const confirmed = ok[rival.encounterId] === true;
+        return (
+          <div
+            key={rival.encounterId}
+            className="mode-card"
+            style={{ marginBottom: 8, opacity: unlocked ? 1 : 0.45 }}
+            data-testid={`wager-rival-${rival.encounterId}`}
+          >
+            <h3 style={{ margin: '0 0 0.25rem' }}>{encounter.opponentName}</h3>
+            <p>
+              {encounter.title} · {encounter.tactic}
+            </p>
+            <p className="muted">{unlocked ? rival.blurb : `Unlocks after ${rival.unlockAfter}.`}</p>
+            {held.length > 0 && (
+              <p data-testid={`wager-held-${rival.encounterId}`}>
+                They currently hold {held.length} of your {held.length === 1 ? 'card' : 'cards'}:{' '}
+                {held.map((card) => card.displayName).join(', ')}.
+              </p>
+            )}
+            {unlocked && (
+              <>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    onChange={(e) => setOk((cur) => ({ ...cur, [rival.encounterId]: e.target.checked }))}
+                  />{' '}
+                  I understand a card may be lost to {encounter.opponentName}.
+                </label>
+                <p>
+                  {confirmed ? (
+                    <Link
+                      className="btn"
+                      to={`/play?mode=wager&wager=1&seed=${seed}&encounter=${rival.encounterId}`}
+                    >
+                      Confirm wager
+                    </Link>
+                  ) : (
+                    <button className="btn" disabled>
+                      Confirm wager
+                    </button>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -246,11 +317,20 @@ export function SettingsScreen() {
       )}
       <h3>Replays</h3>
       {save.replays.length === 0 && <p>None yet.</p>}
-      {save.replays.map((r, i) => (
-        <p key={i}>
-          <Link to={`/play?mode=practice&seed=${r.config.seed}`}>Seed {r.config.seed}</Link> · {r.createdAt}
-        </p>
-      ))}
+      <div className="replay-list">
+        {[...save.replays].reverse().map((r, reverseIndex) => {
+          const index = save.replays.length - 1 - reverseIndex;
+          return (
+            <Link className="replay-row" to={`/replay/${index}`} key={`${r.createdAt}-${index}`}>
+              <span>
+                <strong>{r.label ?? `Seed ${r.config.seed}`}</strong>
+                <small>{r.mode ?? 'match'} · seed {r.config.seed}</small>
+              </span>
+              <span>{r.result ?? 'watch'} →</span>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }

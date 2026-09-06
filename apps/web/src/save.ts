@@ -25,6 +25,15 @@ export type CampaignSave = {
   nextId: string;
   epilogue?: 'seal' | 'use';
   finaleRound: number;
+  challenges: string[];
+};
+
+export type DailySave = {
+  date: string;
+  bestScore: number | null;
+  packClaimed?: boolean;
+  streak: number;
+  lastWinDate: string;
 };
 
 export type SaveGame = {
@@ -43,7 +52,7 @@ export type SaveGame = {
   seals: number;
   loreIds: string[];
   wagerUnlocked: boolean;
-  daily: { date: string; bestScore: number | null; packClaimed?: boolean };
+  daily: DailySave;
   replays: import('@sigilgrid/protocol').StoredReplay[];
 };
 
@@ -66,7 +75,7 @@ export function emptySave(collection: SaveGame['collection']): SaveGame {
     opponentHoldings: {},
     decks,
     activeDeckId: decks[0]?.id ?? 'beginner',
-    campaign: { completed: [], nextId: 't1', finaleRound: 0 },
+    campaign: { completed: [], nextId: 't1', finaleRound: 0, challenges: [] },
     settings: defaultSettings(),
     unlockedCosmetics: ['frame-plain', 'back-plain'],
     frameId: 'frame-plain',
@@ -74,7 +83,7 @@ export function emptySave(collection: SaveGame['collection']): SaveGame {
     seals: 0,
     loreIds: [],
     wagerUnlocked: false,
-    daily: { date: '', bestScore: null },
+    daily: { date: '', bestScore: null, streak: 0, lastWinDate: '' },
     replays: [],
   };
 }
@@ -130,7 +139,24 @@ function migrate(raw: unknown): SaveGame {
   if (!isSaveGame(raw)) {
     throw new Error('That file is not a Sigil Grid save.');
   }
-  return { ...raw, opponentHoldings: raw.opponentHoldings ?? {} };
+  return {
+    ...raw,
+    opponentHoldings: raw.opponentHoldings ?? {},
+    daily: {
+      date: typeof raw.daily.date === 'string' ? raw.daily.date : '',
+      bestScore: typeof raw.daily.bestScore === 'number' ? raw.daily.bestScore : null,
+      packClaimed: raw.daily.packClaimed === true,
+      streak: typeof raw.daily.streak === 'number' ? raw.daily.streak : 0,
+      lastWinDate: typeof raw.daily.lastWinDate === 'string' ? raw.daily.lastWinDate : '',
+    },
+    campaign: {
+      ...raw.campaign,
+      completed: raw.campaign.completed,
+      nextId: typeof raw.campaign.nextId === 'string' ? raw.campaign.nextId : 't1',
+      finaleRound: typeof raw.campaign.finaleRound === 'number' ? raw.campaign.finaleRound : 0,
+      challenges: Array.isArray(raw.campaign.challenges) ? raw.campaign.challenges.filter((id) => typeof id === 'string') : [],
+    },
+  };
 }
 
 /** Re-point cards at current template data, leaving earned progress alone. */
@@ -188,6 +214,8 @@ export function reconcileSave(loaded: SaveGame): SaveGame {
     seals: loaded.seals,
     loreIds: loaded.loreIds,
     wagerUnlocked: loaded.wagerUnlocked,
+    daily: loaded.daily,
+    replays: loaded.replays,
     opponentHoldings: Object.fromEntries(
       Object.entries(loaded.opponentHoldings ?? {}).map(([id, cards]) => [
         id,

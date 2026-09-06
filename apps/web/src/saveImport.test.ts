@@ -36,6 +36,33 @@ describe('save import validation', () => {
     expect(repo.load()?.opponentHoldings).toEqual({});
   });
 
+  it('adds Daily Rift streak fields when loading an older v1 save', () => {
+    const repo = createLocalSaveRepository();
+    const oldSave = {
+      ...fresh(),
+      daily: { date: '2026-09-05', bestScore: 2, packClaimed: true },
+    };
+    localStorage.setItem('sigilgrid.save.v1', JSON.stringify(oldSave));
+
+    expect(repo.load()?.daily).toEqual({
+      date: '2026-09-05',
+      bestScore: 2,
+      packClaimed: true,
+      streak: 0,
+      lastWinDate: '',
+    });
+  });
+
+  it('adds empty challenge clears when loading an older v1 save', () => {
+    const repo = createLocalSaveRepository();
+    const oldSave = {
+      ...fresh(),
+      campaign: { completed: ['t1'], nextId: 't2', finaleRound: 0 },
+    };
+    localStorage.setItem('sigilgrid.save.v1', JSON.stringify(oldSave));
+    expect(repo.load()?.campaign.challenges).toEqual([]);
+  });
+
   it('rejects malformed JSON without touching the stored save', () => {
     const repo = createLocalSaveRepository();
     const before = fresh();

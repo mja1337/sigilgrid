@@ -35,4 +35,7 @@ export type StoredReplay = {
   config: MatchConfig;
   actions: GameAction[];
   createdAt: string;
+  mode?: string;
+  label?: string;
+  result?: MatchState['winner'];
 };

@@ -4,7 +4,10 @@ test('fresh load completes tutorial 1', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('link', { name: /Sigil Grid/i }).first()).toBeVisible();
   await page.getByTestId('mode-story').click();
-  await page.getByTestId('encounter-t1').click();
+  await Promise.all([
+    page.waitForURL(/encounter=t1/),
+    page.getByTestId('encounter-t1').click(),
+  ]);
   await expect(page.getByTestId('dialogue-pre')).toBeVisible();
   await page.getByTestId('dialogue-continue').click();
   await page.getByTestId('kickoff-continue').click();
@@ -35,7 +38,9 @@ test('fresh load completes tutorial 1', async ({ page }) => {
     const mastery = page.getByTestId('mastery-0');
     if (await mastery.isVisible().catch(() => false)) await mastery.click();
     const resolve = page.getByTestId('resolve-close');
-    if (await resolve.isVisible().catch(() => false)) await resolve.click();
+    if (await resolve.isVisible().catch(() => false)) {
+      await resolve.click({ force: true, timeout: 1_000 }).catch(() => undefined);
+    }
     await page.waitForTimeout(200);
   }
   await expect(page.getByTestId('match-over')).toBeVisible({ timeout: 60_000 });

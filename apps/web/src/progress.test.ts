@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from '@sigilgrid/core';
 import {
+  CHALLENGES,
   COLLECTION_CAP,
   ENCOUNTERS,
   REPEAT_WIN_SEALS,
@@ -11,11 +12,13 @@ import {
   activeDeckSummary,
   applyMatchToSave,
   claimLoot,
+  circuitFinished,
   deckCardsForMatch,
   grantStoryRewards,
   heldCardsForMatch,
   isReclaimableLoot,
   lootCandidates,
+  wagerRivalUnlocked,
 } from './progress.ts';
 import { emptySave } from './save.ts';
 
@@ -63,7 +66,9 @@ describe('deckCardsForMatch', () => {
     const hand = deckCardsForMatch(save);
     expect(hand).toHaveLength(5);
     expect(new Set(hand.map((c) => c.instanceId)).size).toBe(5);
-    expect(activeDeckSummary(save)).toEqual({ name: 'Custom 1', owned: 0, borrowed: 5 });
+    expect(activeDeckSummary(save)).toMatchObject({ name: 'Custom 1', owned: 0, borrowed: 5 });
+    expect(activeDeckSummary(save).mix).toMatch(/[PMXA]/);
+    expect(activeDeckSummary(save).power).toBeGreaterThan(0);
   });
 
   it('tops up a half-built deck and reports how many were borrowed', () => {
@@ -94,6 +99,45 @@ describe('deckCardsForMatch', () => {
 });
 
 describe('applyMatchToSave', () => {
+  it('increments a daily streak once per day and resets it after a missed day', () => {
+    const save = emptySave(createStarterCollection());
+    const dayOne = applyMatchToSave(save, {
+      mode: 'daily',
+      result: ended('player'),
+      seed: 20260904,
+      wager: false,
+      dailyDate: '2026-09-04',
+    });
+    expect(dayOne.daily).toMatchObject({ streak: 1, lastWinDate: '2026-09-04' });
+
+    const sameDay = applyMatchToSave(dayOne, {
+      mode: 'daily',
+      result: ended('player'),
+      seed: 20260904,
+      wager: false,
+      dailyDate: '2026-09-04',
+    });
+    expect(sameDay.daily.streak).toBe(1);
+
+    const dayTwo = applyMatchToSave(sameDay, {
+      mode: 'daily',
+      result: ended('player'),
+      seed: 20260905,
+      wager: false,
+      dailyDate: '2026-09-05',
+    });
+    expect(dayTwo.daily.streak).toBe(2);
+
+    const afterGap = applyMatchToSave(dayTwo, {
+      mode: 'daily',
+      result: ended('player'),
+      seed: 20260907,
+      wager: false,
+      dailyDate: '2026-09-07',
+    });
+    expect(afterGap.daily).toMatchObject({ streak: 1, lastWinDate: '2026-09-07' });
+  });
+
   it('does not complete a story encounter on a loss', () => {
     const save = emptySave(createStarterCollection());
     const next = applyMatchToSave(save, {
@@ -238,5 +282,43 @@ describe('applyMatchToSave', () => {
     const refused = claimLoot(wagerSave, returning, 'a2-road');
     expect(refused.collection).toHaveLength(COLLECTION_CAP);
     expect(refused.opponentHoldings['a2-road']).toEqual([original]);
+  });
+
+  it('records challenge first-wins without packing loot, then pays a seal on replay', () => {
+    const save = emptySave(createStarterCollection());
+    const rite = CHALLENGES[0]!;
+    const first = applyMatchToSave(save, {
+      mode: 'challenge',
+      encounter: rite,
+      result: ended('player'),
+      seed: 400,
+      wager: false,
+    });
+    expect(first.campaign.challenges).toEqual([rite.id]);
+    expect(first.seals).toBe(save.seals + 1);
+    expect(first.collection).toHaveLength(save.collection.length);
+
+    const replay = applyMatchToSave(first, {
+      mode: 'challenge',
+      encounter: rite,
+      result: ended('player'),
+      seed: 400,
+      wager: false,
+    });
+    expect(replay.campaign.challenges).toEqual([rite.id]);
+    expect(replay.seals).toBe(first.seals + REPEAT_WIN_SEALS);
+  });
+
+  it('unlocks wager rivals only after their story encounter', () => {
+    const save = emptySave(createStarterCollection());
+    expect(wagerRivalUnlocked(save, 'a2-road')).toBe(false);
+    expect(circuitFinished(save)).toBe(false);
+    const beaten = {
+      ...save,
+      campaign: { ...save.campaign, completed: ['a2-road', 'a4-r3'] },
+    };
+    expect(wagerRivalUnlocked(beaten, 'a2-road')).toBe(true);
+    expect(wagerRivalUnlocked(beaten, 'a2-lock')).toBe(false);
+    expect(circuitFinished(beaten)).toBe(true);
   });
 });

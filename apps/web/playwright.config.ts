@@ -7,12 +7,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   use: {
-    baseURL: 'http://127.0.0.1:5174',
+    baseURL: 'http://127.0.0.1:4178',
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 5174',
-    url: 'http://127.0.0.1:5174',
+    command: 'npm run dev -- --host 127.0.0.1 --port 4178',
+    url: 'http://127.0.0.1:4178',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
