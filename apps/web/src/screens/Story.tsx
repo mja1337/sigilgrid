@@ -2,17 +2,24 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ENCOUNTERS } from '@sigilgrid/content';
 import { useGame } from '../GameContext.tsx';
+import { activeDeckSummary } from '../progress.ts';
 
 const ACTS = ['Ember Market', 'Glasswater Road', 'The Clockwork Archive', 'The Black Lantern Rite'];
 
 export function StoryScreen() {
   const { save } = useGame();
+  const deck = activeDeckSummary(save);
   return (
     <div className="app-shell">
       <div className="topbar">
         <Link to="/">Home</Link>
         <div className="brand">The Ashfall Circuit</div>
       </div>
+      <p className="deck-banner" data-testid="story-deck-banner">
+        Taking in <strong>{deck.name}</strong>
+        {deck.borrowed > 0 && ` · ${deck.borrowed} filled from your album`}.{' '}
+        <Link to="/collection">Edit deck</Link>
+      </p>
       {([1, 2, 3, 4] as const).map((act) => (
         <section key={act}>
           <h2 style={{ fontFamily: 'var(--font)', color: 'var(--gold)' }}>
@@ -28,6 +35,7 @@ export function StoryScreen() {
                 <p>
                   {e.opponentName} · {e.tactic}
                 </p>
+                {e.playerTemplates && <p className="muted">Lesson hand provided — your deck sits this one out.</p>}
                 {unlocked && (
                   <Link className="btn" to={`/play?mode=story&encounter=${e.id}&seed=${40 + e.index}`} data-testid={`encounter-${e.id}`}>
                     Enter

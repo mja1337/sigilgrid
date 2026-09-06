@@ -22,8 +22,10 @@ import { COLLECTION_CAP, CONTENT_VERSION, ENCOUNTERS, instantiateId, LORE } from
 import { StoredReplay } from '@sigilgrid/protocol';
 import { useGame } from '../GameContext.tsx';
 import {
+  activeDeckSummary,
   applyMatchToSave,
   claimLoot,
+  deckCardsForMatch,
   heldCardsForMatch,
   isReclaimableLoot,
   lootCandidates,
@@ -33,6 +35,9 @@ import { BoardView } from '../components/Board.tsx';
 import { CardBack } from '../components/CardBack.tsx';
 import { CardFace, InspectPanel } from '../components/CardFace.tsx';
 import { CombatOverlay } from '../components/CombatOverlay.tsx';
+
+/** Matches the card-capture flip in theme.css, with a beat of slack. */
+const CAPTURE_SETTLE_MS = 600;
 
 function cardsFromTemplates(ids: string[], seed: number, prefix: string) {
   return ids.map((id, i) => instantiateId(id, seed + i * 31, prefix === 'p' ? 'starter' : 'event', `${prefix}-${id}-${i}`));
@@ -62,6 +67,7 @@ export function PlayScreen() {
   const [orderPick, setOrderPick] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [showKickoff, setShowKickoff] = useState(true);
+  const [boardSettled, setBoardSettled] = useState(false);
   const [combatEvents, setCombatEvents] = useState<MatchEvent[] | null>(null);
   const [fx, setFx] = useState<{ placed?: number; captured?: number[] }>({});
   const [hoverCell, setHoverCell] = useState<number | null>(null);
@@ -73,13 +79,9 @@ export function PlayScreen() {
 
   const playerCards = useMemo(() => {
     if (encounter?.playerTemplates) return cardsFromTemplates(encounter.playerTemplates, seed, 'p');
-    const deck = save.decks.find((d) => d.id === save.activeDeckId);
-    const ids = deck?.instanceIds ?? save.collection.slice(0, 5).map((c) => c.instanceId);
-    return ids
-      .map((id) => save.collection.find((c) => c.instanceId === id))
-      .filter(Boolean)
-      .slice(0, 5) as NonNullable<typeof save.collection>;
+    return deckCardsForMatch(save);
   }, [encounter, save, seed]);
+  const deckSummary = useMemo(() => activeDeckSummary(save), [save]);
 
   function startMatch() {
     const regularOpp = cardsFromTemplates(
@@ -170,40 +172,45 @@ export function PlayScreen() {
     let cur = from;
     let acts = [...prev];
     let guard = 8;
-    while (cur.currentPlayer === 'opponent' && cur.phase !== 'ended' && cur.phase !== 'masteryChoice' && guard-- > 0) {
-      if (token !== aiGen.current) return;
-      if (cur.phase === 'placing') {
-        const open = legalCells(cur);
-        if (open.length === 0 || cur.hands.opponent.length === 0) {
+    try {
+      while (cur.currentPlayer === 'opponent' && cur.phase !== 'ended' && cur.phase !== 'masteryChoice' && guard-- > 0) {
+        if (token !== aiGen.current) return;
+        if (cur.phase === 'placing') {
+          const open = legalCells(cur);
+          if (open.length === 0 || cur.hands.opponent.length === 0) {
+            cur = concludeIfOver(cur).nextState;
+            break;
+          }
+          await sleep(d.think);
+          if (token !== aiGen.current) return;
+        }
+        const action = ai.choose(cur, encounter?.personality);
+        const { nextState, events } = reduce(cur, action);
+        if (events.some((e) => e.kind === 'illegal')) {
           cur = concludeIfOver(cur).nextState;
           break;
         }
-        await sleep(d.think);
+        acts.push(action);
+        cur = nextState;
+        const placed = events.find((e) => e.kind === 'place');
+        setFx({
+          placed: placed && placed.kind === 'place' ? placed.cell : undefined,
+          captured: [],
+        });
+        setActions(acts);
+        setState(cur);
+        if (placed) await sleep(d.place);
+        if (token !== aiGen.current) return;
+        await playCombat(events);
         if (token !== aiGen.current) return;
       }
-      const action = ai.choose(cur, encounter?.personality);
-      const { nextState, events } = reduce(cur, action);
-      if (events.some((e) => e.kind === 'illegal')) {
-        cur = concludeIfOver(cur).nextState;
-        break;
-      }
-      acts.push(action);
-      cur = nextState;
-      const placed = events.find((e) => e.kind === 'place');
-      setFx({
-        placed: placed && placed.kind === 'place' ? placed.cell : undefined,
-        captured: [],
-      });
       setActions(acts);
       setState(cur);
-      if (placed) await sleep(d.place);
-      if (token !== aiGen.current) return;
-      await playCombat(events);
-      if (token !== aiGen.current) return;
+    } finally {
+      // An abandoned turn must still release the board, or nothing downstream
+      // of `busy` — the result screen included — ever runs again.
+      if (token === aiGen.current) setBusy(false);
     }
-    setActions(acts);
-    setState(cur);
-    setBusy(false);
   }
 
   function cellFromPoint(x: number, y: number): number | null {
@@ -359,6 +366,24 @@ export function PlayScreen() {
     }
   }, [state, busy, showKickoff, combatEvents]);
 
+  const matchOver = Boolean(
+    state && (state.phase === 'ended' || (state.phase === 'masteryChoice' && state.pendingMastery.length === 0)),
+  );
+
+  /**
+   * The result screen waits for the turn to finish playing out: the opponent's
+   * last placement, any combat overlay, and the capture flip that follows it.
+   * Otherwise it lands mid-animation and cards keep moving behind it.
+   */
+  useEffect(() => {
+    if (!matchOver || busy || combatEvents) {
+      setBoardSettled(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setBoardSettled(true), CAPTURE_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [matchOver, busy, combatEvents]);
+
   const score = state ? scoreBoard(state) : { player: 0, opponent: 0 };
   const hand = state ? state.hands.player.map((id) => state.cards[id]!) : [];
   const ghost = encounter?.id === 't1' && state ? suggestUnopposed(state, selected) : undefined;
@@ -412,6 +437,17 @@ export function PlayScreen() {
             <p key={i}><strong>{l.speaker}:</strong> {l.text}</p>
           ))}
           {wager && <p>Wager Rites: one card from your active deck is at stake if you lose.</p>}
+          <p className="deck-note" data-testid="pre-deck-note">
+            {encounter.playerTemplates ? (
+              <>This lesson deals you a set hand of five. Your own deck returns after the tutorials.</>
+            ) : (
+              <>
+                Taking in <strong>{deckSummary.name}</strong>
+                {deckSummary.borrowed > 0 && ` · ${deckSummary.borrowed} filled from your album`}.{' '}
+                <Link to="/collection">Change deck</Link>
+              </>
+            )}
+          </p>
           <button className="btn" data-testid="dialogue-continue" onClick={startMatch}>
             Begin rite
           </button>
@@ -673,7 +709,7 @@ export function PlayScreen() {
           <CardFace card={state.cards[drag.id]!} owner="player" compact />
         </div>
       )}
-      {state.phase === 'masteryChoice' && state.pendingMastery[0] && (
+      {!combatEvents && state.phase === 'masteryChoice' && state.pendingMastery[0] && (
         <div className="modal">
           <div className="modal-card">
             <h2>Mastery choice</h2>
@@ -696,7 +732,7 @@ export function PlayScreen() {
           </div>
         </div>
       )}
-      {!combatEvents && (state.phase === 'ended' || (state.phase === 'masteryChoice' && state.pendingMastery.length === 0)) && dialogue === 'play' && (
+      {boardSettled && !combatEvents && matchOver && dialogue === 'play' && (
         <div className="modal">
           <div className="modal-card" data-testid="match-over">
             <h2>Match {state.winner}</h2>

@@ -42,6 +42,45 @@ export function lootCandidates(result: MatchState): CardInstance[] {
   return out;
 }
 
+/**
+ * The five cards taken into a match. A deck can go stale (cards discarded, lost
+ * to a wager) or be half-built, so the album tops the hand up rather than
+ * letting a match start with fewer than five cards.
+ */
+export function deckCardsForMatch(save: SaveGame): CardInstance[] {
+  const deck = save.decks.find((d) => d.id === save.activeDeckId);
+  const picked: CardInstance[] = [];
+  const used = new Set<string>();
+  for (const id of deck?.instanceIds ?? []) {
+    if (picked.length === 5 || used.has(id)) continue;
+    const card = save.collection.find((c) => c.instanceId === id);
+    if (!card) continue;
+    used.add(id);
+    picked.push(card);
+  }
+  for (const card of save.collection) {
+    if (picked.length === 5) break;
+    if (used.has(card.instanceId)) continue;
+    used.add(card.instanceId);
+    picked.push(card);
+  }
+  return picked;
+}
+
+/** How much of the active deck is actually playable, for deck readouts before a match. */
+export function activeDeckSummary(save: SaveGame): { name: string; owned: number; borrowed: number } {
+  const deck = save.decks.find((d) => d.id === save.activeDeckId);
+  const owned = new Set(
+    (deck?.instanceIds ?? []).filter((id) => save.collection.some((c) => c.instanceId === id)),
+  ).size;
+  const total = deckCardsForMatch(save).length;
+  return {
+    name: deck?.name ?? 'Album order',
+    owned: Math.min(owned, 5),
+    borrowed: Math.max(0, total - Math.min(owned, 5)),
+  };
+}
+
 export function lootInstanceId(encounterId: string, prize: CardInstance): string {
   return `taken-${encounterId}-${prize.templateId}`;
 }

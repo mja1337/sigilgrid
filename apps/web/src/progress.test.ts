@@ -8,8 +8,10 @@ import {
   instantiateId,
 } from '@sigilgrid/content';
 import {
+  activeDeckSummary,
   applyMatchToSave,
   claimLoot,
+  deckCardsForMatch,
   grantStoryRewards,
   heldCardsForMatch,
   isReclaimableLoot,
@@ -43,6 +45,53 @@ function ended(winner: 'player' | 'opponent' | 'draw', extra: Parameters<typeof 
     ...extra,
   };
 }
+
+describe('deckCardsForMatch', () => {
+  it('deals the active deck in its saved order', () => {
+    const save = emptySave(createStarterCollection());
+    const deck = save.decks.find((d) => d.id === save.activeDeckId)!;
+    expect(deckCardsForMatch(save).map((c) => c.instanceId)).toEqual(deck.instanceIds);
+  });
+
+  it('fills an empty deck from the album so a match is never dealt short', () => {
+    const base = emptySave(createStarterCollection());
+    const save = {
+      ...base,
+      decks: [...base.decks, { id: 'custom-1', name: 'Custom 1', instanceIds: [] }],
+      activeDeckId: 'custom-1',
+    };
+    const hand = deckCardsForMatch(save);
+    expect(hand).toHaveLength(5);
+    expect(new Set(hand.map((c) => c.instanceId)).size).toBe(5);
+    expect(activeDeckSummary(save)).toEqual({ name: 'Custom 1', owned: 0, borrowed: 5 });
+  });
+
+  it('tops up a half-built deck and reports how many were borrowed', () => {
+    const base = emptySave(createStarterCollection());
+    const picked = base.collection.slice(0, 2).map((c) => c.instanceId);
+    const save = {
+      ...base,
+      decks: [...base.decks, { id: 'custom-1', name: 'Custom 1', instanceIds: picked }],
+      activeDeckId: 'custom-1',
+    };
+    const hand = deckCardsForMatch(save);
+    expect(hand).toHaveLength(5);
+    expect(hand.slice(0, 2).map((c) => c.instanceId)).toEqual(picked);
+    expect(activeDeckSummary(save).borrowed).toBe(3);
+  });
+
+  it('drops deck entries for cards that left the album', () => {
+    const base = emptySave(createStarterCollection());
+    const save = {
+      ...base,
+      decks: [...base.decks, { id: 'custom-1', name: 'Custom 1', instanceIds: ['gone-1', 'gone-2'] }],
+      activeDeckId: 'custom-1',
+    };
+    const hand = deckCardsForMatch(save);
+    expect(hand).toHaveLength(5);
+    expect(hand.every((c) => base.collection.includes(c))).toBe(true);
+  });
+});
 
 describe('applyMatchToSave', () => {
   it('does not complete a story encounter on a loss', () => {

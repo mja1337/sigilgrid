@@ -53,21 +53,23 @@ export function CollectionScreen() {
   const deckCards = deckIds
     .map((id) => save.collection.find((c) => c.instanceId === id))
     .filter(Boolean) as CardInstance[];
-  const dirty = JSON.stringify(deckIds) !== JSON.stringify(active?.instanceIds ?? []);
 
-  function toggleDeck(instanceId: string) {
-    setDeckIds((ids) => {
-      if (ids.includes(instanceId)) return ids.filter((x) => x !== instanceId);
-      if (ids.length >= 5) return ids;
-      return [...ids, instanceId];
-    });
-  }
-
-  function saveDeck() {
+  /** Deck edits write straight to the save, so leaving the screen never loses a build. */
+  function commitDeck(next: string[]) {
+    setDeckIds(next);
     patch((s) => ({
       ...s,
-      decks: s.decks.map((d) => (d.id === s.activeDeckId ? { ...d, instanceIds: deckIds } : d)),
+      decks: s.decks.map((d) => (d.id === s.activeDeckId ? { ...d, instanceIds: next } : d)),
     }));
+  }
+
+  function toggleDeck(instanceId: string) {
+    if (deckIds.includes(instanceId)) {
+      commitDeck(deckIds.filter((x) => x !== instanceId));
+      return;
+    }
+    if (deckIds.length >= 5) return;
+    commitDeck([...deckIds, instanceId]);
   }
 
   function buy(tierId: string) {
@@ -192,7 +194,7 @@ export function CollectionScreen() {
               type="button"
               data-testid="deck-clear"
               disabled={deckIds.length === 0}
-              onClick={() => setDeckIds([])}
+              onClick={() => commitDeck([])}
             >
               Clear
             </button>
@@ -224,12 +226,14 @@ export function CollectionScreen() {
           </div>
 
           <div className="deck-actions">
-            <button className="btn" type="button" data-testid="deck-save" disabled={deckIds.length !== 5 || !dirty} onClick={saveDeck}>
-              {dirty ? 'Save deck' : 'Saved'}
-            </button>
-            <span className="muted">
-              {deckIds.length === 5 ? 'Ready to play' : `Pick ${5 - deckIds.length} more below`}
+            <span className="deck-status" data-testid="deck-status">
+              {deckIds.length === 5
+                ? `${active?.name ?? 'Deck'} saved · ready to play`
+                : `${active?.name ?? 'Deck'} saved · pick ${5 - deckIds.length} more and the album fills the rest`}
             </span>
+            <Link className="btn ghost small" to="/story">
+              Take it into the story
+            </Link>
           </div>
 
           <p className="muted">
@@ -245,7 +249,7 @@ export function CollectionScreen() {
                   title={ready ? 'Fill the five slots from this list' : 'Own all five templates first'}
                   onClick={() => {
                     const ids = resolvePresetDeck(save.collection, preset.templates);
-                    if (ids) setDeckIds(ids);
+                    if (ids) commitDeck(ids);
                   }}
                 >
                   {preset.name}

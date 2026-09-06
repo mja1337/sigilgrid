@@ -90,7 +90,7 @@ test('a discard removes the card from the album and every deck', async ({ page }
   }
 });
 
-test('the deck builder shows five slots and saves only a full deck', async ({ page }) => {
+test('the deck builder shows five slots and keeps every edit without a save step', async ({ page }) => {
   await seedSeals(page, 0);
   await page.goto('/#/collection');
   await page.getByTestId('tab-deck').click();
@@ -98,19 +98,34 @@ test('the deck builder shows five slots and saves only a full deck', async ({ pa
   await expect(page.locator('.deck-slot')).toHaveCount(5);
   await page.getByTestId('deck-clear').click();
   await expect(page.locator('.deck-slot.empty')).toHaveCount(5);
-  await expect(page.getByTestId('deck-save')).toBeDisabled();
 
-  // Deliberately a different five from the stored deck — re-picking the same
-  // cards leaves the deck unchanged, and the button correctly stays "Saved".
   const candidates = page.locator('.album .card-face');
   for (let i = 5; i < 10; i++) await candidates.nth(i).click();
   await expect(page.locator('.deck-slot.filled')).toHaveCount(5);
-  await expect(page.getByTestId('deck-save')).toBeEnabled();
+  await expect(page.getByTestId('deck-status')).toContainText('ready to play');
 
-  await page.getByTestId('deck-save').click();
+  // Leaving the screen and coming back must show the same five cards.
+  await page.goto('/#/story');
+  await page.goto('/#/collection');
+  await page.getByTestId('tab-deck').click();
+  await expect(page.locator('.deck-slot.filled')).toHaveCount(5);
+
   const saved = await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('sigilgrid.save.v1')!);
     return s.decks.find((d: { id: string }) => d.id === s.activeDeckId).instanceIds.length;
   });
   expect(saved).toBe(5);
+});
+
+test('a brand new empty deck still deals a full hand in story', async ({ page }) => {
+  await seedSeals(page, 0);
+  await page.goto('/#/collection');
+  await page.getByTestId('tab-deck').click();
+  await page.getByTestId('deck-new').click();
+  await expect(page.locator('.deck-slot.empty')).toHaveCount(5);
+
+  await page.goto('/#/play?mode=story&encounter=a1-rival&seed=44');
+  await page.getByTestId('dialogue-continue').click();
+  await page.getByTestId('kickoff-continue').click();
+  await expect(page.locator('.hand-column .card-face')).toHaveCount(5);
 });
